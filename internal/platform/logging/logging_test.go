@@ -83,6 +83,15 @@ func TestRedactAttrsRedactsSensitiveValuesRecursively(t *testing.T) {
 	require.GreaterOrEqual(t, bytes.Count(buf.Bytes(), []byte("[REDACTED]")), 4)
 }
 
+func TestRedactAttrsRedactsSensitiveValuesInsideStructs(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(RedactAttrs(slog.NewJSONHandler(&buf, nil)))
+
+	logger.Info("config", slog.Any("config", config.Config{Auth: config.AuthConfig{PrivateKey: config.NewSecret("plain-private-key")}}))
+
+	require.NotContains(t, buf.String(), "plain-private-key")
+}
+
 func TestRedactAttrsDoesNotMutateGroupAttrs(t *testing.T) {
 	var buf bytes.Buffer
 	attrs := []slog.Attr{slog.String("password", "plain-password")}

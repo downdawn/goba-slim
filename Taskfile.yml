@@ -4,17 +4,87 @@ tasks:
   generate:
     desc: 生成 OpenAPI HTTP 契约代码
     cmds:
-      - 'E:\Program Files\Go\bin\go.exe run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen --package generated --generate gin,types,embedded-spec -o api/openapi/generated/openapi.gen.go api/openapi/openapi.yaml'
-  fmt:
-    cmds:
-      - 'E:\Program Files\Go\bin\go.exe fmt ./...'
-  test:
+      - go tool oapi-codegen --package generated --generate gin,types,embedded-spec -o api/openapi/generated/openapi.gen.go api/openapi/openapi.yaml
+
+  generate:check:
+    desc: 检查 OpenAPI 生成代码是否漂移
     deps: [generate]
     cmds:
-      - 'E:\Program Files\Go\bin\go.exe test ./...'
+      - git diff --exit-code -- api/openapi/generated/openapi.gen.go
+
+  format:
+    desc: 格式化 Go 代码
+    cmds:
+      - go fmt ./...
+
+  format:check:
+    desc: 检查 Go 代码格式
+    cmds:
+      - go tool golangci-lint fmt --diff
+
+  lint:
+    desc: 执行静态检查
+    cmds:
+      - go tool golangci-lint run
+
+  test:
+    desc: 执行单元测试
+    deps: [generate:check]
+    cmds:
+      - go test ./...
+
+  test:race:
+    desc: 执行竞态检测
+    deps: [generate:check]
+    cmds:
+      - go test -race ./...
+
+  test:coverage:
+    desc: 生成测试覆盖率文件
+    deps: [generate:check]
+    cmds:
+      - go test ./... -coverprofile=coverage.out
+
   vet:
+    desc: 执行 Go vet
     cmds:
-      - 'E:\Program Files\Go\bin\go.exe vet ./...'
+      - go vet ./...
+
+  vuln:
+    desc: 执行漏洞扫描
+    cmds:
+      - go tool govulncheck ./...
+
   build:
+    desc: 构建 goba 可执行文件
     cmds:
-      - 'E:\Program Files\Go\bin\go.exe build ./cmd/goba'
+      - go build -o bin/goba ./cmd/goba
+
+  init:
+    desc: 初始化不覆盖已有文件的本地开发配置
+    cmds:
+      - cmd: |
+          if (Test-Path ".env") -or (Test-Path "configs/config.local.yaml") { Write-Error "本地配置已存在，拒绝覆盖"; exit 1 }
+          Copy-Item .env.example .env
+          Copy-Item configs/config.example.yaml configs/config.local.yaml
+        platforms: [windows]
+      - cmd: |
+          if [ -e .env ] || [ -e configs/config.local.yaml ]; then echo "本地配置已存在，拒绝覆盖" >&2; exit 1; fi
+          cp .env.example .env
+          cp configs/config.example.yaml configs/config.local.yaml
+        platforms: [linux, darwin]
+
+  run:
+    desc: 使用本地开发配置启动服务（首次请先执行 task init）
+    cmds:
+      - go run ./cmd/goba serve --config configs/config.local.yaml --load-dotenv
+
+  check:
+    desc: 执行完整本地验收
+    cmds:
+      - task: generate:check
+      - task: format:check
+      - task: vet
+      - task: test
+      - task: vuln
+      - task: build

@@ -2,7 +2,18 @@ version: "2"
 run:
   timeout: 5m
 linters:
-  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - errcheck
+    - errorlint
+    - gosec
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  exclusions:
+    generated: strict
 formatters:
   enable:
     - gofmt

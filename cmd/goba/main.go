@@ -20,6 +20,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	//nolint:contextcheck // 根命令通过 ExecuteContext 接收并向子命令传播 ctx。
 	cmd := cli.NewRoot(cli.Dependencies{})
 	cmd.SetArgs(args)
 	cmd.SetOut(stdout)

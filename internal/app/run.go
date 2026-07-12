@@ -13,6 +13,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.runtime.Start(ctx); err != nil {
 		return err
 	}
+	//nolint:contextcheck // 上游 Context 已取消，停止清理必须使用独立 Context。
 	defer func() { _ = a.runtime.Stop(context.Background()) }()
 	return a.server.Run(ctx)
 }

@@ -18,11 +18,12 @@ func newConfigCommand(deps Dependencies) *cobra.Command {
 
 func newConfigCheckCommand(deps Dependencies) *cobra.Command {
 	var configFile string
+	var loadDotEnv bool
 	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "检查配置是否有效",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if _, err := deps.Load(cmd.Context(), config.Options{File: configFile}); err != nil {
+			if _, err := deps.Load(cmd.Context(), config.Options{File: configFile, LoadDotEnv: loadDotEnv}); err != nil {
 				return fmt.Errorf("配置校验失败: %w", err)
 			}
 			_, err := fmt.Fprintln(cmd.OutOrStdout(), "配置检查通过")
@@ -30,12 +31,14 @@ func newConfigCheckCommand(deps Dependencies) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configFile, "config", "", "YAML 配置文件路径")
+	cmd.Flags().BoolVar(&loadDotEnv, "load-dotenv", false, "显式加载当前目录 .env（仅本地开发）")
 	return cmd
 }
 
 func newConfigPrintCommand(deps Dependencies) *cobra.Command {
 	var configFile string
 	var redact bool
+	var loadDotEnv bool
 	cmd := &cobra.Command{
 		Use:   "print",
 		Short: "以脱敏形式显示配置",
@@ -43,7 +46,7 @@ func newConfigPrintCommand(deps Dependencies) *cobra.Command {
 			if !redact {
 				return fmt.Errorf("必须提供 --redact 才能输出配置")
 			}
-			cfg, err := deps.Load(cmd.Context(), config.Options{File: configFile})
+			cfg, err := deps.Load(cmd.Context(), config.Options{File: configFile, LoadDotEnv: loadDotEnv})
 			if err != nil {
 				return fmt.Errorf("加载配置失败: %w", err)
 			}
@@ -54,6 +57,7 @@ func newConfigPrintCommand(deps Dependencies) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&configFile, "config", "", "YAML 配置文件路径")
 	cmd.Flags().BoolVar(&redact, "redact", false, "确认以脱敏形式输出")
+	cmd.Flags().BoolVar(&loadDotEnv, "load-dotenv", false, "显式加载当前目录 .env（仅本地开发）")
 	return cmd
 }
 
@@ -93,6 +97,7 @@ type redactedAuthConfig struct {
 	AccessTokenTTL  time.Duration `json:"access_token_ttl"`
 	RefreshTokenTTL time.Duration `json:"refresh_token_ttl"`
 	PrivateKey      string        `json:"private_key"`
+	PrivateKeyFile  string        `json:"private_key_file"`
 }
 type redactedLogConfig struct {
 	Level  string `json:"level"`
@@ -108,7 +113,7 @@ func newRedactedConfig(cfg config.Config) redactedConfig {
 		App:     redactedAppConfig{Environment: cfg.App.Environment, Debug: cfg.App.Debug, DocsEnabled: cfg.App.DocsEnabled},
 		Server:  redactedServerConfig{Host: cfg.Server.Host, Port: cfg.Server.Port, HeaderTimeout: cfg.Server.HeaderTimeout, ReadTimeout: cfg.Server.ReadTimeout, WriteTimeout: cfg.Server.WriteTimeout, IdleTimeout: cfg.Server.IdleTimeout, ShutdownTimeout: cfg.Server.ShutdownTimeout, TrustedProxies: cfg.Server.TrustedProxies},
 		CORS:    redactedCORSConfig{AllowOrigins: cfg.CORS.AllowOrigins, AllowMethods: cfg.CORS.AllowMethods, AllowHeaders: cfg.CORS.AllowHeaders, AllowCredentials: cfg.CORS.AllowCredentials},
-		Auth:    redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String()},
+		Auth:    redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile},
 		Log:     redactedLogConfig{Level: cfg.Log.Level, Format: cfg.Log.Format},
 		Modules: redactedModuleConfig{File: cfg.Modules.File, SystemConfig: cfg.Modules.SystemConfig},
 	}

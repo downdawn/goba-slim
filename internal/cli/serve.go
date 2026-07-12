@@ -9,11 +9,12 @@ import (
 
 func newServeCommand(deps Dependencies) *cobra.Command {
 	var configFile string
+	var loadDotEnv bool
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "启动 HTTP 服务",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := deps.Load(cmd.Context(), config.Options{File: configFile})
+			cfg, err := deps.Load(cmd.Context(), config.Options{File: configFile, LoadDotEnv: loadDotEnv})
 			if err != nil {
 				return fmt.Errorf("加载配置失败: %w", err)
 			}
@@ -29,5 +30,6 @@ func newServeCommand(deps Dependencies) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configFile, "config", "", "YAML 配置文件路径")
+	cmd.Flags().BoolVar(&loadDotEnv, "load-dotenv", false, "显式加载当前目录 .env（仅本地开发）")
 	return cmd
 }

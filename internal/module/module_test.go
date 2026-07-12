@@ -23,6 +23,48 @@ func TestRegistryResolvesDependenciesBeforeDependents(t *testing.T) {
 	require.Equal(t, []string{"database", "api"}, []string{ordered[0].Manifest().Name, ordered[1].Manifest().Name})
 }
 
+func TestRegistryRejectsInvalidModuleGraphs(t *testing.T) {
+	tests := []struct {
+		name string
+		add  func(*Registry) error
+		want string
+	}{
+		{
+			name: "duplicate module",
+			add: func(registry *Registry) error {
+				require.NoError(t, registry.Add(testModule{manifest: Manifest{Name: "api"}}))
+				return registry.Add(testModule{manifest: Manifest{Name: "api"}})
+			},
+			want: "已注册",
+		},
+		{
+			name: "missing dependency",
+			add: func(registry *Registry) error {
+				require.NoError(t, registry.Add(testModule{manifest: Manifest{Name: "api", Requires: []string{"database"}}}))
+				_, err := registry.Resolve(nil)
+				return err
+			},
+			want: "未注册依赖模块",
+		},
+		{
+			name: "cyclic dependency",
+			add: func(registry *Registry) error {
+				require.NoError(t, registry.Add(testModule{manifest: Manifest{Name: "api", Requires: []string{"database"}}}))
+				require.NoError(t, registry.Add(testModule{manifest: Manifest{Name: "database", Requires: []string{"api"}}}))
+				_, err := registry.Resolve(nil)
+				return err
+			},
+			want: "模块依赖存在循环",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.ErrorContains(t, test.add(NewRegistry()), test.want)
+		})
+	}
+}
+
 func TestRuntimeStopsStartedModulesInReverseOrder(t *testing.T) {
 	events := []string{}
 	module := lifecycleTestModule{manifest: Manifest{Name: "worker"}, events: &events}

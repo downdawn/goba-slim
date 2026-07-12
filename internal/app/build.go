@@ -51,6 +51,7 @@ func Build(_ context.Context, cfg config.Config, logger *slog.Logger, options ..
 		}
 		healthService := health.NewService(healthChecks)
 		handler := httpapi.NewHandler(healthService)
+		//nolint:contextcheck // 路由构造不启动 I/O，处理请求时由 Server 注入请求 Context。
 		router := httpserver.NewRouter(httpserver.Options{Config: cfg, Handler: handler, Logger: logger})
 		buildOptions.server = httpserver.NewServer(httpserver.ServerOptions{
 			Address: net.JoinHostPort(cfg.Server.Host, fmt.Sprint(cfg.Server.Port)),

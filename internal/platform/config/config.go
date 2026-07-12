@@ -4,6 +4,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -22,11 +23,13 @@ type Config struct {
 	Log     LogConfig    `koanf:"log"`
 	Modules ModuleConfig `koanf:"modules"`
 }
+
 type AppConfig struct {
 	Environment string `koanf:"environment"`
 	Debug       bool   `koanf:"debug"`
 	DocsEnabled bool   `koanf:"docs_enabled"`
 }
+
 type ServerConfig struct {
 	Host            string        `koanf:"host"`
 	Port            int           `koanf:"port"`
@@ -37,27 +40,33 @@ type ServerConfig struct {
 	ShutdownTimeout time.Duration `koanf:"shutdown_timeout"`
 	TrustedProxies  []string      `koanf:"trusted_proxies"`
 }
+
 type CORSConfig struct {
 	AllowOrigins     []string `koanf:"allow_origins"`
 	AllowMethods     []string `koanf:"allow_methods"`
 	AllowHeaders     []string `koanf:"allow_headers"`
 	AllowCredentials bool     `koanf:"allow_credentials"`
 }
+
 type AuthConfig struct {
 	Issuer          string        `koanf:"issuer"`
 	Audience        string        `koanf:"audience"`
 	AccessTokenTTL  time.Duration `koanf:"access_token_ttl"`
 	RefreshTokenTTL time.Duration `koanf:"refresh_token_ttl"`
 	PrivateKey      Secret        `koanf:"private_key"`
+	PrivateKeyFile  string        `koanf:"private_key_file"`
 }
+
 type LogConfig struct {
 	Level  string `koanf:"level"`
 	Format string `koanf:"format"`
 }
+
 type ModuleConfig struct {
 	File         bool `koanf:"file"`
 	SystemConfig bool `koanf:"systemconfig"`
 }
+
 type Secret string
 
 func NewSecret(value string) Secret { return Secret(value) }
@@ -69,36 +78,103 @@ func (s Secret) String() string {
 	return "[REDACTED]"
 }
 
-type Options struct{ File string }
+type Options struct {
+	File              string
+	EnvironmentPrefix string
+	LoadDotEnv        bool
+}
 
 func Default() Config {
-	return Config{App: AppConfig{Environment: "development", DocsEnabled: true}, Server: ServerConfig{Host: "0.0.0.0", Port: 8000, HeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, ShutdownTimeout: 15 * time.Second}, CORS: CORSConfig{AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Content-Type", "Authorization", "X-Request-ID"}}, Auth: AuthConfig{AccessTokenTTL: 15 * time.Minute, RefreshTokenTTL: 720 * time.Hour}, Log: LogConfig{Level: "info", Format: "json"}}
+	return Config{
+		App: AppConfig{Environment: "development", DocsEnabled: true},
+		Server: ServerConfig{
+			Host: "0.0.0.0", Port: 8000, HeaderTimeout: 5 * time.Second,
+			ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second,
+			IdleTimeout: 60 * time.Second, ShutdownTimeout: 15 * time.Second,
+		},
+		CORS: CORSConfig{
+			AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowHeaders: []string{"Content-Type", "Authorization", "X-Request-ID"},
+		},
+		Auth: AuthConfig{AccessTokenTTL: 15 * time.Minute, RefreshTokenTTL: 720 * time.Hour},
+		Log:  LogConfig{Level: "info", Format: "json"},
+	}
 }
+
 func Load(_ context.Context, options Options) (Config, error) {
 	cfg := Default()
-	data := map[string]any{}
 	if options.File != "" {
-		k := koanf.New(".")
-		if err := k.Load(file.Provider(options.File), yaml.Parser()); err != nil {
-			return Config{}, fmt.Errorf("读取配置文件: %w", err)
-		}
-		if err := k.Unmarshal("", &data); err != nil {
-			return Config{}, fmt.Errorf("解析配置文件: %w", err)
+		data, err := loadYAML(options.File)
+		if err != nil {
+			return Config{}, err
 		}
 		applyMap(&cfg, data)
 	}
-	applyEnvironment(&cfg, os.Environ())
+
+	prefix := options.EnvironmentPrefix
+	if prefix == "" {
+		prefix = "GOBA_"
+	}
+	values := os.Environ()
+	if options.LoadDotEnv {
+		dotEnv, err := loadDotEnv(".env")
+		if err != nil && !os.IsNotExist(err) {
+			return Config{}, fmt.Errorf("读取 .env 失败: %w", err)
+		}
+		values = append(dotEnv, values...)
+	}
+	if err := applyEnvironment(&cfg, values, prefix); err != nil {
+		return Config{}, err
+	}
+	if options.LoadDotEnv && cfg.App.Environment == "production" {
+		return Config{}, fmt.Errorf("app.environment 为 production 时不能加载 .env")
+	}
+	if err := resolveSecrets(&cfg, prefix); err != nil {
+		return Config{}, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
 }
+
+func loadYAML(path string) (map[string]any, error) {
+	k := koanf.New(".")
+	if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
+		return nil, fmt.Errorf("读取配置文件: %w", err)
+	}
+	data := map[string]any{}
+	if err := k.Unmarshal("", &data); err != nil {
+		return nil, fmt.Errorf("解析配置文件: %w", err)
+	}
+	return data, nil
+}
+
+func loadDotEnv(path string) ([]string, error) {
+	// #nosec G304 -- 仅在调用方显式选择加载本地 .env 时读取固定文件名。
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var values []string
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || key == "" {
+			return nil, fmt.Errorf(".env 包含无效配置行")
+		}
+		values = append(values, key+"="+strings.Trim(strings.TrimSpace(value), "\"'"))
+	}
+	return values, nil
+}
+
 func applyMap(cfg *Config, data map[string]any) {
 	section := func(name string) map[string]any {
-		if value, ok := data[name].(map[string]any); ok {
-			return value
-		}
-		return nil
+		value, _ := data[name].(map[string]any)
+		return value
 	}
 	setString := func(m map[string]any, key string, target *string) {
 		if value, ok := m[key].(string); ok {
@@ -125,6 +201,12 @@ func applyMap(cfg *Config, data map[string]any) {
 			}
 		}
 	}
+	setStrings := func(m map[string]any, key string, target *[]string) {
+		if values, ok := m[key].([]any); ok {
+			*target = toStrings(values)
+		}
+	}
+
 	if m := section("app"); m != nil {
 		setString(m, "environment", &cfg.App.Environment)
 		setBool(m, "debug", &cfg.App.Debug)
@@ -138,6 +220,13 @@ func applyMap(cfg *Config, data map[string]any) {
 		setDuration(m, "write_timeout", &cfg.Server.WriteTimeout)
 		setDuration(m, "idle_timeout", &cfg.Server.IdleTimeout)
 		setDuration(m, "shutdown_timeout", &cfg.Server.ShutdownTimeout)
+		setStrings(m, "trusted_proxies", &cfg.Server.TrustedProxies)
+	}
+	if m := section("cors"); m != nil {
+		setStrings(m, "allow_origins", &cfg.CORS.AllowOrigins)
+		setStrings(m, "allow_methods", &cfg.CORS.AllowMethods)
+		setStrings(m, "allow_headers", &cfg.CORS.AllowHeaders)
+		setBool(m, "allow_credentials", &cfg.CORS.AllowCredentials)
 	}
 	if m := section("auth"); m != nil {
 		setString(m, "issuer", &cfg.Auth.Issuer)
@@ -147,36 +236,173 @@ func applyMap(cfg *Config, data map[string]any) {
 		if key != "" {
 			cfg.Auth.PrivateKey = NewSecret(key)
 		}
+		setString(m, "private_key_file", &cfg.Auth.PrivateKeyFile)
 		setDuration(m, "access_token_ttl", &cfg.Auth.AccessTokenTTL)
 		setDuration(m, "refresh_token_ttl", &cfg.Auth.RefreshTokenTTL)
 	}
-}
-func applyEnvironment(cfg *Config, values []string) {
-	for _, value := range values {
-		key, raw, ok := strings.Cut(value, "=")
-		if !ok || !strings.HasPrefix(key, "GOBA_") {
-			continue
-		}
-		switch key {
-		case "GOBA_SERVER_PORT":
-			if parsed, err := strconv.Atoi(raw); err == nil {
-				cfg.Server.Port = parsed
-			}
-		case "GOBA_SERVER_HOST":
-			cfg.Server.Host = raw
-		case "GOBA_APP_ENVIRONMENT":
-			cfg.App.Environment = raw
-		case "GOBA_AUTH_PRIVATE_KEY":
-			cfg.Auth.PrivateKey = NewSecret(raw)
-		}
+	if m := section("log"); m != nil {
+		setString(m, "level", &cfg.Log.Level)
+		setString(m, "format", &cfg.Log.Format)
+	}
+	if m := section("modules"); m != nil {
+		setBool(m, "file", &cfg.Modules.File)
+		setBool(m, "systemconfig", &cfg.Modules.SystemConfig)
 	}
 }
+
+func toStrings(values []any) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if stringValue, ok := value.(string); ok {
+			result = append(result, stringValue)
+		}
+	}
+	return result
+}
+
+func applyEnvironment(cfg *Config, values []string, prefix string) error {
+	env := make(map[string]string)
+	for _, value := range values {
+		key, raw, ok := strings.Cut(value, "=")
+		if ok && strings.HasPrefix(key, prefix) {
+			env[key] = raw
+		}
+	}
+	setString := func(key string, target *string) {
+		if value, ok := env[prefix+key]; ok {
+			*target = value
+		}
+	}
+	setBool := func(key string, target *bool) error {
+		if value, ok := env[prefix+key]; ok {
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return invalidEnvironmentValue(prefix + key)
+			}
+			*target = parsed
+		}
+		return nil
+	}
+	setInt := func(key string, target *int) error {
+		if value, ok := env[prefix+key]; ok {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return invalidEnvironmentValue(prefix + key)
+			}
+			*target = parsed
+		}
+		return nil
+	}
+	setDuration := func(key string, target *time.Duration) error {
+		if value, ok := env[prefix+key]; ok {
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return invalidEnvironmentValue(prefix + key)
+			}
+			*target = parsed
+		}
+		return nil
+	}
+	setStrings := func(key string, target *[]string) {
+		if value, ok := env[prefix+key]; ok {
+			*target = splitStrings(value)
+		}
+	}
+
+	setString("APP_ENVIRONMENT", &cfg.App.Environment)
+	if err := setBool("APP_DEBUG", &cfg.App.Debug); err != nil {
+		return err
+	}
+	if err := setBool("APP_DOCS_ENABLED", &cfg.App.DocsEnabled); err != nil {
+		return err
+	}
+	setString("SERVER_HOST", &cfg.Server.Host)
+	if err := setInt("SERVER_PORT", &cfg.Server.Port); err != nil {
+		return err
+	}
+	for _, item := range []struct {
+		key    string
+		target *time.Duration
+	}{{"SERVER_HEADER_TIMEOUT", &cfg.Server.HeaderTimeout}, {"SERVER_READ_TIMEOUT", &cfg.Server.ReadTimeout}, {"SERVER_WRITE_TIMEOUT", &cfg.Server.WriteTimeout}, {"SERVER_IDLE_TIMEOUT", &cfg.Server.IdleTimeout}, {"SERVER_SHUTDOWN_TIMEOUT", &cfg.Server.ShutdownTimeout}, {"AUTH_ACCESS_TOKEN_TTL", &cfg.Auth.AccessTokenTTL}, {"AUTH_REFRESH_TOKEN_TTL", &cfg.Auth.RefreshTokenTTL}} {
+		if err := setDuration(item.key, item.target); err != nil {
+			return err
+		}
+	}
+	setStrings("SERVER_TRUSTED_PROXIES", &cfg.Server.TrustedProxies)
+	setStrings("CORS_ALLOW_ORIGINS", &cfg.CORS.AllowOrigins)
+	setStrings("CORS_ALLOW_METHODS", &cfg.CORS.AllowMethods)
+	setStrings("CORS_ALLOW_HEADERS", &cfg.CORS.AllowHeaders)
+	if err := setBool("CORS_ALLOW_CREDENTIALS", &cfg.CORS.AllowCredentials); err != nil {
+		return err
+	}
+	setString("AUTH_ISSUER", &cfg.Auth.Issuer)
+	setString("AUTH_AUDIENCE", &cfg.Auth.Audience)
+	setString("AUTH_PRIVATE_KEY", (*string)(&cfg.Auth.PrivateKey))
+	setString("AUTH_PRIVATE_KEY_FILE", &cfg.Auth.PrivateKeyFile)
+	setString("LOG_LEVEL", &cfg.Log.Level)
+	setString("LOG_FORMAT", &cfg.Log.Format)
+	if err := setBool("MODULES_FILE", &cfg.Modules.File); err != nil {
+		return err
+	}
+	return setBool("MODULES_SYSTEMCONFIG", &cfg.Modules.SystemConfig)
+}
+
+func invalidEnvironmentValue(key string) error {
+	return fmt.Errorf("环境变量 %s 格式无效", key)
+}
+
+func splitStrings(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+func resolveSecrets(cfg *Config, prefix string) error {
+	if cfg.Auth.PrivateKey != "" && cfg.Auth.PrivateKeyFile != "" {
+		return fmt.Errorf("%sAUTH_PRIVATE_KEY 与 %sAUTH_PRIVATE_KEY_FILE 只能配置一种来源", prefix, prefix)
+	}
+	if cfg.Auth.PrivateKeyFile == "" {
+		return nil
+	}
+	content, err := os.ReadFile(cfg.Auth.PrivateKeyFile)
+	if err != nil {
+		return fmt.Errorf("读取 %sAUTH_PRIVATE_KEY_FILE 失败: %w", prefix, err)
+	}
+	cfg.Auth.PrivateKey = NewSecret(strings.TrimRight(string(content), "\r\n"))
+	return nil
+}
+
 func (c Config) Validate() error {
+	if c.App.Environment != "development" && c.App.Environment != "test" && c.App.Environment != "production" {
+		return fmt.Errorf("app.environment 必须是 development、test 或 production")
+	}
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
 		return fmt.Errorf("server.port 必须在 1 到 65535 之间")
 	}
 	if c.Server.Host == "" {
 		return fmt.Errorf("server.host 不能为空")
+	}
+	for _, item := range []struct {
+		field string
+		value time.Duration
+	}{{"server.header_timeout", c.Server.HeaderTimeout}, {"server.read_timeout", c.Server.ReadTimeout}, {"server.write_timeout", c.Server.WriteTimeout}, {"server.idle_timeout", c.Server.IdleTimeout}, {"server.shutdown_timeout", c.Server.ShutdownTimeout}} {
+		if item.value <= 0 {
+			return fmt.Errorf("%s 必须大于 0", item.field)
+		}
+	}
+	if c.Auth.AccessTokenTTL <= 0 || c.Auth.AccessTokenTTL >= c.Auth.RefreshTokenTTL {
+		return fmt.Errorf("auth.access_token_ttl 必须大于 0 且小于 auth.refresh_token_ttl")
+	}
+	if c.Auth.RefreshTokenTTL <= 0 {
+		return fmt.Errorf("auth.refresh_token_ttl 必须大于 0")
 	}
 	if c.CORS.AllowCredentials {
 		for _, origin := range c.CORS.AllowOrigins {
@@ -184,6 +410,20 @@ func (c Config) Validate() error {
 				return fmt.Errorf("cors.allow_origins 使用通配符时不能启用凭据")
 			}
 		}
+	}
+	for _, proxy := range c.Server.TrustedProxies {
+		if _, _, err := net.ParseCIDR(proxy); err != nil {
+			return fmt.Errorf("server.trusted_proxies 包含无效 CIDR")
+		}
+	}
+	if c.App.Environment == "production" && c.App.Debug {
+		return fmt.Errorf("app.debug 在 production 环境必须为 false")
+	}
+	if c.App.Environment == "production" && c.App.DocsEnabled {
+		return fmt.Errorf("app.docs_enabled 在 production 环境必须为 false")
+	}
+	if c.Log.Format != "json" && c.Log.Format != "text" {
+		return fmt.Errorf("log.format 必须是 json 或 text")
 	}
 	return nil
 }

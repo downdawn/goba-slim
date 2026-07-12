@@ -21,7 +21,8 @@ auth:
   audience: goba-slim
   access_token_ttl: 15m
   refresh_token_ttl: 720h
-  private_key: ""
+  # 私钥仅通过本地挂载文件或 GOBA_AUTH_PRIVATE_KEY_FILE 提供；部署时填写挂载路径。
+  private_key_file: ""
 log:
   level: info
   format: json

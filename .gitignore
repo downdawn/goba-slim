@@ -7,11 +7,13 @@
 /.superpowers/
 # 本地工作流文档不对外提交
 /docs/superpowers/
+/.worktrees/
 
 # 本地环境与秘密
 .env
 .env.*
 !.env.example
+/configs/config.local.yaml
 
 # Go 构建与测试产物
 /bin/

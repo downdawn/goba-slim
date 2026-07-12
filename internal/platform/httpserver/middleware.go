@@ -63,7 +63,7 @@ func validRequestID(value string) bool {
 		return false
 	}
 	for _, char := range value {
-		if !(unicode.IsLetter(char) || unicode.IsDigit(char) || char == '-' || char == '_' || char == '.') {
+		if !unicode.IsLetter(char) && !unicode.IsDigit(char) && char != '-' && char != '_' && char != '.' {
 			return false
 		}
 	}

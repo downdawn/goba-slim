@@ -25,13 +25,20 @@ var sensitiveKeys = map[string]struct{}{
 	"authorization": {},
 	"cookie":        {},
 	"private_key":   {},
+	"privatekey":    {},
 	"access_token":  {},
+	"accesstoken":   {},
 	"refresh_token": {},
+	"refreshtoken":  {},
 	"id_token":      {},
+	"idtoken":       {},
 	"api_key":       {},
+	"apikey":        {},
 	"client_secret": {},
+	"clientsecret":  {},
 	"secret":        {},
 	"set_cookie":    {},
+	"setcookie":     {},
 }
 
 func New(cfg config.LogConfig, output io.Writer) (*slog.Logger, *slog.LevelVar) {
@@ -142,6 +149,12 @@ func (s *redactionState) redactReflectValue(value reflect.Value, depth int) any 
 		}
 		return s.redactReflectValue(value.Elem(), depth+1)
 	}
+	if value.Kind() == reflect.Struct {
+		return s.redactStruct(value, depth+1)
+	}
+	if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
+		return s.redactSequence(value, depth+1)
+	}
 	if value.Kind() != reflect.Map || value.Type().Key().Kind() != reflect.String {
 		return value.Interface()
 	}
@@ -165,6 +178,31 @@ func (s *redactionState) redactReflectValue(value reflect.Value, depth int) any 
 		} else {
 			redacted[key] = s.redactReflectValue(iterator.Value(), depth+1)
 		}
+	}
+	return redacted
+}
+
+func (s *redactionState) redactStruct(value reflect.Value, depth int) map[string]any {
+	redacted := make(map[string]any, value.NumField())
+	valueType := value.Type()
+	for index := 0; index < value.NumField(); index++ {
+		field := valueType.Field(index)
+		if field.PkgPath != "" {
+			continue
+		}
+		if isSensitiveKey(field.Name) {
+			redacted[field.Name] = redactedValue
+			continue
+		}
+		redacted[field.Name] = s.redactReflectValue(value.Field(index), depth+1)
+	}
+	return redacted
+}
+
+func (s *redactionState) redactSequence(value reflect.Value, depth int) []any {
+	redacted := make([]any, value.Len())
+	for index := 0; index < value.Len(); index++ {
+		redacted[index] = s.redactReflectValue(value.Index(index), depth+1)
 	}
 	return redacted
 }

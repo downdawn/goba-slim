@@ -51,7 +51,6 @@ func TestRouterServesSwaggerUIInDevelopment(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, favicon.Code)
 }
 
-
 func TestRouterDoesNotServeDocumentationInProduction(t *testing.T) {
 	options := testOptions(health.NewService(nil))
 	options.Config.App.Environment = "production"

@@ -85,6 +85,7 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
 		defer cancel()
+		//nolint:contextcheck // 上游 Context 已取消，独立超时 Context 用于完成优雅关闭。
 		shutdownErr := s.server.Shutdown(shutdownCtx)
 		if shutdownErr != nil {
 			closeErr := s.server.Close()
