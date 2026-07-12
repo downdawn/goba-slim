@@ -1,0 +1,29 @@
+# 临时参考仓库与调研缓存
+/.firecrawl/
+/fba-slim-ref/
+/fba-full-ref/
+/gfba-ref/
+/.firecrawl/
+/.superpowers/
+# 本地工作流文档不对外提交
+/docs/superpowers/
+
+# 本地环境与秘密
+.env
+.env.*
+!.env.example
+
+# Go 构建与测试产物
+/bin/
+/dist/
+/coverage.out
+*.coverprofile
+.task/
+*.test
+*.prof
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,20 @@
+version: '3'
+
+tasks:
+  generate:
+    desc: 生成 OpenAPI HTTP 契约代码
+    cmds:
+      - 'E:\Program Files\Go\bin\go.exe run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen --package generated --generate gin,types,embedded-spec -o api/openapi/generated/openapi.gen.go api/openapi/openapi.yaml'
+  fmt:
+    cmds:
+      - 'E:\Program Files\Go\bin\go.exe fmt ./...'
+  test:
+    deps: [generate]
+    cmds:
+      - 'E:\Program Files\Go\bin\go.exe test ./...'
+  vet:
+    cmds:
+      - 'E:\Program Files\Go\bin\go.exe vet ./...'
+  build:
+    cmds:
+      - 'E:\Program Files\Go\bin\go.exe build ./cmd/goba'

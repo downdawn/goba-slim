@@ -1,0 +1,30 @@
+app:
+  environment: development
+  debug: false
+  docs_enabled: true
+server:
+  host: 0.0.0.0
+  port: 8000
+  header_timeout: 5s
+  read_timeout: 15s
+  write_timeout: 15s
+  idle_timeout: 60s
+  shutdown_timeout: 15s
+  trusted_proxies: []
+cors:
+  allow_origins: []
+  allow_methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+  allow_headers: [Content-Type, Authorization, X-Request-ID]
+  allow_credentials: false
+auth:
+  issuer: goba-slim
+  audience: goba-slim
+  access_token_ttl: 15m
+  refresh_token_ttl: 720h
+  private_key: ""
+log:
+  level: info
+  format: json
+modules:
+  file: false
+  systemconfig: false
