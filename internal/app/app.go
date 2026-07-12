@@ -18,17 +18,27 @@ type App struct {
 }
 
 type buildOptions struct {
-	modules []module.Module
-	server  server
+	modules        []module.Module
+	coreModules    []module.Module
+	coreModulesSet bool
+	server         server
 }
 
 // Option 定义构建 App 时可选的显式依赖。
 type Option func(*buildOptions)
 
-// WithModules 为应用装配提供业务模块；当前默认不注册任何业务模块。
+// WithModules 为应用装配追加业务模块。
 func WithModules(items ...module.Module) Option {
 	return func(options *buildOptions) {
 		options.modules = append(options.modules, items...)
+	}
+}
+
+// WithCoreModules 覆盖默认核心模块，仅用于测试注入。
+func WithCoreModules(items ...module.Module) Option {
+	return func(options *buildOptions) {
+		options.coreModules = append([]module.Module(nil), items...)
+		options.coreModulesSet = true
 	}
 }
 

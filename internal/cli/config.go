@@ -62,12 +62,13 @@ func newConfigPrintCommand(deps Dependencies) *cobra.Command {
 }
 
 type redactedConfig struct {
-	App     redactedAppConfig    `json:"app"`
-	Server  redactedServerConfig `json:"server"`
-	CORS    redactedCORSConfig   `json:"cors"`
-	Auth    redactedAuthConfig   `json:"auth"`
-	Log     redactedLogConfig    `json:"log"`
-	Modules redactedModuleConfig `json:"modules"`
+	App      redactedAppConfig      `json:"app"`
+	Server   redactedServerConfig   `json:"server"`
+	Database redactedDatabaseConfig `json:"database"`
+	CORS     redactedCORSConfig     `json:"cors"`
+	Auth     redactedAuthConfig     `json:"auth"`
+	Log      redactedLogConfig      `json:"log"`
+	Modules  redactedModuleConfig   `json:"modules"`
 }
 
 type redactedAppConfig struct {
@@ -84,6 +85,19 @@ type redactedServerConfig struct {
 	IdleTimeout     time.Duration `json:"idle_timeout"`
 	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
 	TrustedProxies  []string      `json:"trusted_proxies"`
+}
+type redactedDatabaseConfig struct {
+	Host           string        `json:"host"`
+	Port           int           `json:"port"`
+	Name           string        `json:"name"`
+	User           string        `json:"user"`
+	Password       string        `json:"password"`
+	PasswordFile   string        `json:"password_file"`
+	SSLMode        string        `json:"ssl_mode"`
+	MinConnections int32         `json:"min_connections"`
+	MaxConnections int32         `json:"max_connections"`
+	ConnectTimeout time.Duration `json:"connect_timeout"`
+	HealthTimeout  time.Duration `json:"health_timeout"`
 }
 type redactedCORSConfig struct {
 	AllowOrigins     []string `json:"allow_origins"`
@@ -110,11 +124,12 @@ type redactedModuleConfig struct {
 
 func newRedactedConfig(cfg config.Config) redactedConfig {
 	return redactedConfig{
-		App:     redactedAppConfig{Environment: cfg.App.Environment, Debug: cfg.App.Debug, DocsEnabled: cfg.App.DocsEnabled},
-		Server:  redactedServerConfig{Host: cfg.Server.Host, Port: cfg.Server.Port, HeaderTimeout: cfg.Server.HeaderTimeout, ReadTimeout: cfg.Server.ReadTimeout, WriteTimeout: cfg.Server.WriteTimeout, IdleTimeout: cfg.Server.IdleTimeout, ShutdownTimeout: cfg.Server.ShutdownTimeout, TrustedProxies: cfg.Server.TrustedProxies},
-		CORS:    redactedCORSConfig{AllowOrigins: cfg.CORS.AllowOrigins, AllowMethods: cfg.CORS.AllowMethods, AllowHeaders: cfg.CORS.AllowHeaders, AllowCredentials: cfg.CORS.AllowCredentials},
-		Auth:    redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile},
-		Log:     redactedLogConfig{Level: cfg.Log.Level, Format: cfg.Log.Format},
-		Modules: redactedModuleConfig{File: cfg.Modules.File, SystemConfig: cfg.Modules.SystemConfig},
+		App:      redactedAppConfig{Environment: cfg.App.Environment, Debug: cfg.App.Debug, DocsEnabled: cfg.App.DocsEnabled},
+		Server:   redactedServerConfig{Host: cfg.Server.Host, Port: cfg.Server.Port, HeaderTimeout: cfg.Server.HeaderTimeout, ReadTimeout: cfg.Server.ReadTimeout, WriteTimeout: cfg.Server.WriteTimeout, IdleTimeout: cfg.Server.IdleTimeout, ShutdownTimeout: cfg.Server.ShutdownTimeout, TrustedProxies: cfg.Server.TrustedProxies},
+		Database: redactedDatabaseConfig{Host: cfg.Database.Host, Port: cfg.Database.Port, Name: cfg.Database.Name, User: cfg.Database.User, Password: cfg.Database.Password.String(), PasswordFile: cfg.Database.PasswordFile, SSLMode: cfg.Database.SSLMode, MinConnections: cfg.Database.MinConnections, MaxConnections: cfg.Database.MaxConnections, ConnectTimeout: cfg.Database.ConnectTimeout, HealthTimeout: cfg.Database.HealthTimeout},
+		CORS:     redactedCORSConfig{AllowOrigins: cfg.CORS.AllowOrigins, AllowMethods: cfg.CORS.AllowMethods, AllowHeaders: cfg.CORS.AllowHeaders, AllowCredentials: cfg.CORS.AllowCredentials},
+		Auth:     redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile},
+		Log:      redactedLogConfig{Level: cfg.Log.Level, Format: cfg.Log.Format},
+		Modules:  redactedModuleConfig{File: cfg.Modules.File, SystemConfig: cfg.Modules.SystemConfig},
 	}
 }

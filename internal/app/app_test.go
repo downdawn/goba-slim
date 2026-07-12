@@ -56,7 +56,7 @@ func TestBuildCleansStartedModulesWhenModuleStartFails(t *testing.T) {
 	first := &lifecycleModule{manifest: module.Manifest{Name: "first", Core: true}, events: &events}
 	failing := &lifecycleModule{manifest: module.Manifest{Name: "failing", Core: true, Requires: []string{"first"}}, events: &events, startErr: startCause}
 
-	application, err := Build(t.Context(), config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithModules(first, failing))
+	application, err := Build(t.Context(), config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithCoreModules(), WithModules(first, failing))
 	require.NoError(t, err)
 
 	err = application.Run(t.Context())
@@ -69,7 +69,7 @@ func TestAppStopsRuntimeWhenServerRunFails(t *testing.T) {
 	events := []string{}
 	item := &lifecycleModule{manifest: module.Manifest{Name: "module", Core: true}, events: &events}
 
-	application, err := Build(t.Context(), config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithModules(item), WithServer(failingServer{err: serverCause}))
+	application, err := Build(t.Context(), config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithCoreModules(), WithModules(item), WithServer(failingServer{err: serverCause}))
 	require.NoError(t, err)
 
 	err = application.Run(t.Context())
@@ -83,7 +83,7 @@ func TestBuildReturnsServiceUnavailableWhenEnabledModuleHealthFails(t *testing.T
 		health:   func(context.Context) error { return errors.New("database unavailable") },
 	}
 
-	application, err := Build(t.Context(), config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithModules(item))
+	application, err := Build(t.Context(), config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithCoreModules(), WithModules(item))
 	require.NoError(t, err)
 
 	response := httptest.NewRecorder()
@@ -99,7 +99,7 @@ func TestBuildReturnsOKWhenEnabledModuleHealthSucceeds(t *testing.T) {
 		health:   func(context.Context) error { return nil },
 	}
 
-	application, err := Build(t.Context(), config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithModules(item))
+	application, err := Build(t.Context(), config.Default(), slog.New(slog.NewTextHandler(io.Discard, nil)), WithCoreModules(), WithModules(item))
 	require.NoError(t, err)
 
 	response := httptest.NewRecorder()

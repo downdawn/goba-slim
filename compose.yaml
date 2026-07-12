@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: goba
+      POSTGRES_USER: goba
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+    secrets:
+      - database_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goba -d goba"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    init: true
+
   goba:
     build:
       context: .
@@ -6,15 +23,51 @@ services:
     image: goba-slim:local
     ports:
       - "${GOBA_PORT:-8000}:8000"
+    environment:
+      GOBA_DATABASE_HOST: postgres
+      GOBA_DATABASE_PASSWORD_FILE: /run/secrets/database_password
+    secrets:
+      - database_password
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - type: bind
         source: ./configs/config.example.yaml
         target: /etc/goba/config.yaml
         read_only: true
     healthcheck:
-      test: ["CMD", "/goba", "config", "check", "--config", "/etc/goba/config.yaml"]
+      test: ["CMD", "/goba", "db", "status", "--config", "/etc/goba/config.yaml"]
       interval: 10s
       timeout: 3s
       retries: 3
       start_period: 5s
     init: true
+
+  db-init:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: deployments/Dockerfile
+    image: goba-slim:local
+    entrypoint: ["/goba", "db", "init", "--yes", "--config", "/etc/goba/config.yaml"]
+    environment:
+      GOBA_DATABASE_HOST: postgres
+      GOBA_DATABASE_PASSWORD_FILE: /run/secrets/database_password
+    secrets:
+      - database_password
+    volumes:
+      - type: bind
+        source: ./configs/config.example.yaml
+        target: /etc/goba/config.yaml
+        read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+secrets:
+  database_password:
+    environment: GOBA_DATABASE_PASSWORD
+
+volumes:
+  postgres_data:

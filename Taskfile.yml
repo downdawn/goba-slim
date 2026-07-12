@@ -1,16 +1,25 @@
 version: '3'
 
 tasks:
-  generate:
+  generate:openapi:
     desc: 生成 OpenAPI HTTP 契约代码
     cmds:
       - go tool oapi-codegen --package generated --generate gin,types,embedded-spec -o api/openapi/generated/openapi.gen.go api/openapi/openapi.yaml
 
+  generate:sqlc:
+    desc: 生成 PostgreSQL 查询代码
+    cmds:
+      - go tool sqlc generate
+
+  generate:
+    desc: 生成全部契约代码
+    deps: [generate:openapi, generate:sqlc]
+
   generate:check:
-    desc: 检查 OpenAPI 生成代码是否漂移
+    desc: 检查 OpenAPI 与 sqlc 生成代码是否漂移
     deps: [generate]
     cmds:
-      - git diff --exit-code -- api/openapi/generated/openapi.gen.go
+      - git diff --exit-code -- api/openapi/generated db/generated
 
   format:
     desc: 格式化 Go 代码
@@ -45,6 +54,12 @@ tasks:
     cmds:
       - go test ./... -coverprofile=coverage.out
 
+  test:integration:
+    desc: 使用 Testcontainers 执行 PostgreSQL 集成测试
+    deps: [generate:check]
+    cmds:
+      - go test -tags=integration ./tests -count=1
+
   vet:
     desc: 执行 Go vet
     cmds:
@@ -77,10 +92,21 @@ tasks:
     cmds:
       - go run ./cmd/goba serve --config configs/config.local.yaml --load-dotenv
 
+  db:init:
+    desc: 使用本地配置显式初始化空数据库
+    cmds:
+      - go run ./cmd/goba db init --yes --config configs/config.local.yaml --load-dotenv
+
   compose:up:
     desc: 构建并启动本地 Compose 服务
     cmds:
       - docker compose up --build --detach --wait
+
+  compose:init:
+    desc: 启动 PostgreSQL 并显式初始化空数据库
+    cmds:
+      - docker compose up --detach --wait postgres
+      - docker compose --profile tools run --build --rm db-init
 
   compose:down:
     desc: 停止并删除本地 Compose 服务
@@ -94,5 +120,6 @@ tasks:
       - task: format:check
       - task: vet
       - task: test
+      - task: test:integration
       - task: vuln
       - task: build

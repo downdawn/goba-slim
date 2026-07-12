@@ -9,7 +9,9 @@ import (
 	"os"
 
 	"github.com/downdawn/goba-slim/internal/app"
+	"github.com/downdawn/goba-slim/internal/modules/user"
 	"github.com/downdawn/goba-slim/internal/platform/config"
+	"github.com/downdawn/goba-slim/internal/platform/database"
 	"github.com/downdawn/goba-slim/internal/platform/logging"
 	"github.com/downdawn/goba-slim/internal/version"
 	"github.com/spf13/cobra"
@@ -27,12 +29,18 @@ type LoggerFactory func(config.LogConfig, io.Writer) (*slog.Logger, *slog.LevelV
 
 // BuildApplicationFunc 定义装配可运行应用的依赖。
 type BuildApplicationFunc func(context.Context, config.Config, *slog.Logger) (application, error)
+type DatabaseStatusFunc func(context.Context, config.Config) (database.Status, error)
+type InitializeDatabaseFunc func(context.Context, config.Config) error
+type CreateAdminFunc func(context.Context, config.Config, user.CreateInput) (user.User, error)
 
 // Dependencies 定义命令行所需的可替换依赖，便于测试且避免隐式全局状态。
 type Dependencies struct {
 	Load      LoadConfigFunc
 	NewLogger LoggerFactory
 	Build     BuildApplicationFunc
+	DBStatus  DatabaseStatusFunc
+	DBInit    InitializeDatabaseFunc
+	AddAdmin  CreateAdminFunc
 }
 
 func (d Dependencies) withDefaults() Dependencies {
@@ -46,6 +54,15 @@ func (d Dependencies) withDefaults() Dependencies {
 		d.Build = func(ctx context.Context, cfg config.Config, logger *slog.Logger) (application, error) {
 			return app.Build(ctx, cfg, logger)
 		}
+	}
+	if d.DBStatus == nil {
+		d.DBStatus = app.DatabaseStatus
+	}
+	if d.DBInit == nil {
+		d.DBInit = app.InitializeDatabase
+	}
+	if d.AddAdmin == nil {
+		d.AddAdmin = app.CreateAdmin
 	}
 	return d
 }
@@ -61,6 +78,8 @@ func NewRoot(deps Dependencies) *cobra.Command {
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newConfigCommand(deps))
 	root.AddCommand(newServeCommand(deps))
+	root.AddCommand(newDatabaseCommand(deps))
+	root.AddCommand(newUserCommand(deps))
 	return root
 }
 

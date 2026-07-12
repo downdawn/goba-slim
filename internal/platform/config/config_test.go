@@ -42,6 +42,17 @@ func TestLoadReadsSecretFromFile(t *testing.T) {
 	require.Equal(t, "secret-from-file", cfg.Auth.PrivateKey.Reveal())
 }
 
+func TestLoadReadsDatabasePasswordFromFile(t *testing.T) {
+	secretFile := filepath.Join(t.TempDir(), "database-password")
+	require.NoError(t, os.WriteFile(secretFile, []byte("database-secret\n"), 0o600))
+	t.Setenv("GOBA_DATABASE_PASSWORD_FILE", secretFile)
+
+	cfg, err := Load(t.Context(), Options{EnvironmentPrefix: "GOBA_"})
+
+	require.NoError(t, err)
+	require.Equal(t, "database-secret", cfg.Database.Password.Reveal())
+}
+
 func TestLoadRejectsAmbiguousSecretSources(t *testing.T) {
 	t.Setenv("GOBA_AUTH_PRIVATE_KEY", "plain-secret")
 	t.Setenv("GOBA_AUTH_PRIVATE_KEY_FILE", filepath.Join(t.TempDir(), "private.key"))
@@ -76,6 +87,14 @@ func TestLoadAppliesEnvironmentOverridesForAllConfigurationSections(t *testing.T
 	t.Setenv("GOBA_AUTH_ISSUER", "goba")
 	t.Setenv("GOBA_AUTH_ACCESS_TOKEN_TTL", "30m")
 	t.Setenv("GOBA_AUTH_REFRESH_TOKEN_TTL", "72h")
+	t.Setenv("GOBA_DATABASE_HOST", "db.internal")
+	t.Setenv("GOBA_DATABASE_PORT", "5433")
+	t.Setenv("GOBA_DATABASE_NAME", "goba_test")
+	t.Setenv("GOBA_DATABASE_USER", "tester")
+	t.Setenv("GOBA_DATABASE_SSL_MODE", "require")
+	t.Setenv("GOBA_DATABASE_MIN_CONNECTIONS", "2")
+	t.Setenv("GOBA_DATABASE_MAX_CONNECTIONS", "20")
+	t.Setenv("GOBA_DATABASE_CONNECT_TIMEOUT", "7s")
 	t.Setenv("GOBA_LOG_LEVEL", "debug")
 	t.Setenv("GOBA_LOG_FORMAT", "text")
 	t.Setenv("GOBA_MODULES_FILE", "true")
@@ -93,6 +112,14 @@ func TestLoadAppliesEnvironmentOverridesForAllConfigurationSections(t *testing.T
 	require.Equal(t, "goba", cfg.Auth.Issuer)
 	require.Equal(t, 30*time.Minute, cfg.Auth.AccessTokenTTL)
 	require.Equal(t, 72*time.Hour, cfg.Auth.RefreshTokenTTL)
+	require.Equal(t, "db.internal", cfg.Database.Host)
+	require.Equal(t, 5433, cfg.Database.Port)
+	require.Equal(t, "goba_test", cfg.Database.Name)
+	require.Equal(t, "tester", cfg.Database.User)
+	require.Equal(t, "require", cfg.Database.SSLMode)
+	require.Equal(t, int32(2), cfg.Database.MinConnections)
+	require.Equal(t, int32(20), cfg.Database.MaxConnections)
+	require.Equal(t, 7*time.Second, cfg.Database.ConnectTimeout)
 	require.Equal(t, "debug", cfg.Log.Level)
 	require.Equal(t, "text", cfg.Log.Format)
 	require.True(t, cfg.Modules.File)
@@ -111,6 +138,12 @@ func TestValidateRejectsUnsafeConfigurations(t *testing.T) {
 		{name: "invalid trusted proxy", mutate: func(cfg *Config) { cfg.Server.TrustedProxies = []string{"invalid"} }, field: "server.trusted_proxies"},
 		{name: "production debug", mutate: func(cfg *Config) { cfg.App.Environment = "production"; cfg.App.Debug = true }, field: "app.debug"},
 		{name: "production documentation", mutate: func(cfg *Config) { cfg.App.Environment = "production"; cfg.App.DocsEnabled = true }, field: "app.docs_enabled"},
+		{name: "production database without TLS", mutate: func(cfg *Config) {
+			cfg.App.Environment = "production"
+			cfg.App.DocsEnabled = false
+			cfg.Database.SSLMode = "disable"
+		}, field: "database.ssl_mode"},
+		{name: "invalid database pool", mutate: func(cfg *Config) { cfg.Database.MaxConnections = 0 }, field: "database"},
 	}
 
 	for _, test := range tests {

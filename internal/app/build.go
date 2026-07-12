@@ -25,6 +25,14 @@ func Build(_ context.Context, cfg config.Config, logger *slog.Logger, options ..
 			option(&buildOptions)
 		}
 	}
+	if !buildOptions.coreModulesSet {
+		coreModules, err := buildCoreModules(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("构造核心模块失败: %w", err)
+		}
+		buildOptions.coreModules = coreModules
+	}
+	buildOptions.modules = append(buildOptions.coreModules, buildOptions.modules...)
 
 	registry := module.NewRegistry()
 	for _, item := range buildOptions.modules {

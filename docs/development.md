@@ -14,6 +14,7 @@ task generate:check
 task format
 task lint
 task test
+task test:integration
 task test:race
 task vuln
 task check
@@ -35,7 +36,7 @@ task run
 
 ## OpenAPI 与 HTTP 契约
 
-`api/openapi/openapi.yaml` 是 HTTP 契约事实来源。修改后执行 `task generate`，生成的 `api/openapi/generated/openapi.gen.go` 必须提交，且 `task generate:check` 与 CI 必须无差异。不得手工修改生成代码。
+`api/openapi/openapi.yaml` 是 HTTP 契约事实来源。`db/schema` 和 `db/queries` 是数据库事实来源。修改后执行 `task generate`，OpenAPI 与 sqlc 生成代码必须提交，且 `task generate:check` 与 CI 必须无差异。不得手工修改生成代码。
 
 Gin 仅存在于 `internal/platform/httpserver` 与 `internal/transport/httpapi` 边界；业务模块和共享包只能使用标准 `context.Context`，不得依赖 Gin、pgx、sqlc 或 go-redis 的具体类型。
 
@@ -44,6 +45,16 @@ Gin 仅存在于 `internal/platform/httpserver` 与 `internal/transport/httpapi`
 模块按实际职责拆分：只有出现明确责任时才建立文件或子目录，不建立无边界的 `utils`、`helpers` 包。模块必须通过 Manifest 声明依赖；启动和停止使用可选生命周期接口。
 
 业务错误统一使用 `internal/shared/apperror` 表达，并只在 HTTP 边界映射为响应。未知错误不得泄露堆栈、数据库信息、路径、Token、Cookie、私钥或配置内容。
+
+## PostgreSQL 与用户模块
+
+数据库变更只在 `db/schema` 提供显式 SQL；`serve` 只检查连接和版本。首次初始化使用：
+
+```bash
+task db:init
+```
+
+sqlc 只在数据适配器中使用，生成类型不得进入业务服务。用户事务由应用服务通过 Unit of Work 控制，事务对象不得写入 `context.Context`。Repository 测试使用真实 PostgreSQL，不以 SQLite 或 SQL Mock 代替主要保证。
 
 ## 配置与 Secret
 
@@ -67,7 +78,7 @@ docker compose up --build --wait
 docker compose down
 ```
 
-当前 Compose 只包含应用服务。PostgreSQL 和 Redis 应在代码实际接入后再加入，不维护无消费者的基础设施配置。
+Compose 包含应用和 PostgreSQL。首次使用前在当前 Shell 设置 `GOBA_DATABASE_PASSWORD`，再执行 `task compose:init`；后续使用 `task compose:up`。Redis 在 Phase 3 实际接入前不加入。
 
 镜像级构建和排障可直接执行：
 

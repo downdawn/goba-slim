@@ -4,6 +4,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -16,12 +17,13 @@ import (
 )
 
 type Config struct {
-	App     AppConfig    `koanf:"app"`
-	Server  ServerConfig `koanf:"server"`
-	CORS    CORSConfig   `koanf:"cors"`
-	Auth    AuthConfig   `koanf:"auth"`
-	Log     LogConfig    `koanf:"log"`
-	Modules ModuleConfig `koanf:"modules"`
+	App      AppConfig      `koanf:"app"`
+	Server   ServerConfig   `koanf:"server"`
+	Database DatabaseConfig `koanf:"database"`
+	CORS     CORSConfig     `koanf:"cors"`
+	Auth     AuthConfig     `koanf:"auth"`
+	Log      LogConfig      `koanf:"log"`
+	Modules  ModuleConfig   `koanf:"modules"`
 }
 
 type AppConfig struct {
@@ -39,6 +41,20 @@ type ServerConfig struct {
 	IdleTimeout     time.Duration `koanf:"idle_timeout"`
 	ShutdownTimeout time.Duration `koanf:"shutdown_timeout"`
 	TrustedProxies  []string      `koanf:"trusted_proxies"`
+}
+
+type DatabaseConfig struct {
+	Host           string        `koanf:"host"`
+	Port           int           `koanf:"port"`
+	Name           string        `koanf:"name"`
+	User           string        `koanf:"user"`
+	Password       Secret        `koanf:"password"`
+	PasswordFile   string        `koanf:"password_file"`
+	SSLMode        string        `koanf:"ssl_mode"`
+	MinConnections int32         `koanf:"min_connections"`
+	MaxConnections int32         `koanf:"max_connections"`
+	ConnectTimeout time.Duration `koanf:"connect_timeout"`
+	HealthTimeout  time.Duration `koanf:"health_timeout"`
 }
 
 type CORSConfig struct {
@@ -91,6 +107,10 @@ func Default() Config {
 			Host: "0.0.0.0", Port: 8000, HeaderTimeout: 5 * time.Second,
 			ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second,
 			IdleTimeout: 60 * time.Second, ShutdownTimeout: 15 * time.Second,
+		},
+		Database: DatabaseConfig{
+			Host: "127.0.0.1", Port: 5432, Name: "goba", User: "goba", SSLMode: "disable",
+			MinConnections: 1, MaxConnections: 10, ConnectTimeout: 5 * time.Second, HealthTimeout: 2 * time.Second,
 		},
 		CORS: CORSConfig{
 			AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -194,6 +214,24 @@ func applyMap(cfg *Config, data map[string]any) {
 			*target = int(value)
 		}
 	}
+	setInt32 := func(m map[string]any, key string, target *int32) {
+		if value, ok := m[key].(int); ok {
+			if value < math.MinInt32 || value > math.MaxInt32 {
+				*target = -1
+				return
+			}
+			// #nosec G115 -- 已显式检查 int32 边界。
+			*target = int32(value)
+		}
+		if value, ok := m[key].(float64); ok {
+			if value < math.MinInt32 || value > math.MaxInt32 {
+				*target = -1
+				return
+			}
+			// #nosec G115 -- 已显式检查 int32 边界。
+			*target = int32(value)
+		}
+	}
 	setDuration := func(m map[string]any, key string, target *time.Duration) {
 		if value, ok := m[key].(string); ok {
 			if parsed, err := time.ParseDuration(value); err == nil {
@@ -221,6 +259,23 @@ func applyMap(cfg *Config, data map[string]any) {
 		setDuration(m, "idle_timeout", &cfg.Server.IdleTimeout)
 		setDuration(m, "shutdown_timeout", &cfg.Server.ShutdownTimeout)
 		setStrings(m, "trusted_proxies", &cfg.Server.TrustedProxies)
+	}
+	if m := section("database"); m != nil {
+		setString(m, "host", &cfg.Database.Host)
+		setInt(m, "port", &cfg.Database.Port)
+		setString(m, "name", &cfg.Database.Name)
+		setString(m, "user", &cfg.Database.User)
+		var password string
+		setString(m, "password", &password)
+		if password != "" {
+			cfg.Database.Password = NewSecret(password)
+		}
+		setString(m, "password_file", &cfg.Database.PasswordFile)
+		setString(m, "ssl_mode", &cfg.Database.SSLMode)
+		setInt32(m, "min_connections", &cfg.Database.MinConnections)
+		setInt32(m, "max_connections", &cfg.Database.MaxConnections)
+		setDuration(m, "connect_timeout", &cfg.Database.ConnectTimeout)
+		setDuration(m, "health_timeout", &cfg.Database.HealthTimeout)
 	}
 	if m := section("cors"); m != nil {
 		setStrings(m, "allow_origins", &cfg.CORS.AllowOrigins)
@@ -293,6 +348,16 @@ func applyEnvironment(cfg *Config, values []string, prefix string) error {
 		}
 		return nil
 	}
+	setInt32 := func(key string, target *int32) error {
+		if value, ok := env[prefix+key]; ok {
+			parsed, err := strconv.ParseInt(value, 10, 32)
+			if err != nil {
+				return invalidEnvironmentValue(prefix + key)
+			}
+			*target = int32(parsed)
+		}
+		return nil
+	}
 	setDuration := func(key string, target *time.Duration) error {
 		if value, ok := env[prefix+key]; ok {
 			parsed, err := time.ParseDuration(value)
@@ -329,6 +394,27 @@ func applyEnvironment(cfg *Config, values []string, prefix string) error {
 		}
 	}
 	setStrings("SERVER_TRUSTED_PROXIES", &cfg.Server.TrustedProxies)
+	setString("DATABASE_HOST", &cfg.Database.Host)
+	if err := setInt("DATABASE_PORT", &cfg.Database.Port); err != nil {
+		return err
+	}
+	setString("DATABASE_NAME", &cfg.Database.Name)
+	setString("DATABASE_USER", &cfg.Database.User)
+	setString("DATABASE_PASSWORD", (*string)(&cfg.Database.Password))
+	setString("DATABASE_PASSWORD_FILE", &cfg.Database.PasswordFile)
+	setString("DATABASE_SSL_MODE", &cfg.Database.SSLMode)
+	if err := setInt32("DATABASE_MIN_CONNECTIONS", &cfg.Database.MinConnections); err != nil {
+		return err
+	}
+	if err := setInt32("DATABASE_MAX_CONNECTIONS", &cfg.Database.MaxConnections); err != nil {
+		return err
+	}
+	if err := setDuration("DATABASE_CONNECT_TIMEOUT", &cfg.Database.ConnectTimeout); err != nil {
+		return err
+	}
+	if err := setDuration("DATABASE_HEALTH_TIMEOUT", &cfg.Database.HealthTimeout); err != nil {
+		return err
+	}
 	setStrings("CORS_ALLOW_ORIGINS", &cfg.CORS.AllowOrigins)
 	setStrings("CORS_ALLOW_METHODS", &cfg.CORS.AllowMethods)
 	setStrings("CORS_ALLOW_HEADERS", &cfg.CORS.AllowHeaders)
@@ -366,6 +452,10 @@ func splitStrings(value string) []string {
 }
 
 func resolveSecrets(cfg *Config, prefix string) error {
+	if err := resolveSecret(&cfg.Database.Password, &cfg.Database.PasswordFile, prefix+"DATABASE_PASSWORD"); err != nil {
+		return err
+	}
+
 	if cfg.Auth.PrivateKey != "" && cfg.Auth.PrivateKeyFile != "" {
 		return fmt.Errorf("%sAUTH_PRIVATE_KEY 与 %sAUTH_PRIVATE_KEY_FILE 只能配置一种来源", prefix, prefix)
 	}
@@ -380,6 +470,22 @@ func resolveSecrets(cfg *Config, prefix string) error {
 	return nil
 }
 
+func resolveSecret(secret *Secret, filePath *string, key string) error {
+	if *secret != "" && *filePath != "" {
+		return fmt.Errorf("%s 与 %s_FILE 只能配置一种来源", key, key)
+	}
+	if *filePath == "" {
+		return nil
+	}
+	// #nosec G304 -- 文件路径由部署方通过显式 Secret 配置提供。
+	content, err := os.ReadFile(*filePath)
+	if err != nil {
+		return fmt.Errorf("读取 %s_FILE 失败: %w", key, err)
+	}
+	*secret = NewSecret(strings.TrimRight(string(content), "\r\n"))
+	return nil
+}
+
 func (c Config) Validate() error {
 	if c.App.Environment != "development" && c.App.Environment != "test" && c.App.Environment != "production" {
 		return fmt.Errorf("app.environment 必须是 development、test 或 production")
@@ -389,6 +495,27 @@ func (c Config) Validate() error {
 	}
 	if c.Server.Host == "" {
 		return fmt.Errorf("server.host 不能为空")
+	}
+	if c.Database.Host == "" {
+		return fmt.Errorf("database.host 不能为空")
+	}
+	if c.Database.Port < 1 || c.Database.Port > 65535 {
+		return fmt.Errorf("database.port 必须在 1 到 65535 之间")
+	}
+	if c.Database.Name == "" || c.Database.User == "" {
+		return fmt.Errorf("database.name 和 database.user 不能为空")
+	}
+	allowedSSLMode := map[string]bool{
+		"disable": true, "allow": true, "prefer": true, "require": true, "verify-ca": true, "verify-full": true,
+	}
+	if !allowedSSLMode[c.Database.SSLMode] {
+		return fmt.Errorf("database.ssl_mode 无效")
+	}
+	if c.Database.MinConnections < 0 || c.Database.MaxConnections < 1 || c.Database.MinConnections > c.Database.MaxConnections {
+		return fmt.Errorf("database 连接池大小无效")
+	}
+	if c.Database.ConnectTimeout <= 0 || c.Database.HealthTimeout <= 0 {
+		return fmt.Errorf("database 超时时间必须大于 0")
 	}
 	for _, item := range []struct {
 		field string
@@ -421,6 +548,9 @@ func (c Config) Validate() error {
 	}
 	if c.App.Environment == "production" && c.App.DocsEnabled {
 		return fmt.Errorf("app.docs_enabled 在 production 环境必须为 false")
+	}
+	if c.App.Environment == "production" && (c.Database.SSLMode == "disable" || c.Database.SSLMode == "allow" || c.Database.SSLMode == "prefer") {
+		return fmt.Errorf("database.ssl_mode 在 production 环境必须启用 TLS")
 	}
 	if c.Log.Format != "json" && c.Log.Format != "text" {
 		return fmt.Errorf("log.format 必须是 json 或 text")

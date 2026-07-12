@@ -15,10 +15,12 @@ jobs:
           cache: true
       - run: go mod download
       - run: go tool oapi-codegen --package generated --generate gin,types,embedded-spec -o api/openapi/generated/openapi.gen.go api/openapi/openapi.yaml
-      - run: git diff --exit-code -- api/openapi/generated/openapi.gen.go
+      - run: go tool sqlc generate
+      - run: git diff --exit-code -- api/openapi/generated db/generated
       - run: go tool golangci-lint fmt --diff
       - run: go vet ./...
       - run: go test ./...
+      - run: go test -tags=integration ./tests -count=1
       - run: go test -race ./...
       - run: go tool govulncheck ./...
       - run: go build -o bin/goba ./cmd/goba
@@ -40,16 +42,18 @@ jobs:
       GOBA_PORT: "18000"
     steps:
       - uses: actions/checkout@v4
-      - name: Verify Compose configuration
-        run: docker compose config --quiet
       - name: Verify Compose stack
         shell: bash
         run: |
           set -euo pipefail
+          export GOBA_DATABASE_PASSWORD="$(openssl rand -hex 24)"
           cleanup() {
-            docker compose down --remove-orphans >/dev/null 2>&1 || true
+            docker compose down --volumes --remove-orphans >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+          docker compose config --quiet
+          docker compose up --detach --wait postgres
+          docker compose --profile tools run --build --rm db-init
           docker compose up --build --detach --wait
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/livez" >/dev/null
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/readyz" >/dev/null

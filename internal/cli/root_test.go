@@ -9,8 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/downdawn/goba-slim/internal/modules/user"
 	"github.com/downdawn/goba-slim/internal/platform/config"
+	"github.com/downdawn/goba-slim/internal/platform/database"
 	"github.com/downdawn/goba-slim/internal/version"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
@@ -58,11 +61,64 @@ func TestConfigCheckRejectsInvalidConfiguration(t *testing.T) {
 
 func TestConfigPrintRedactsSecrets(t *testing.T) {
 	cmd, output := newTestRoot(t)
-	cmd.SetArgs([]string{"config", "print", "--config", testConfigPath(t, "auth:\n  private_key: private-secret\n"), "--redact"})
+	cmd.SetArgs([]string{"config", "print", "--config", testConfigPath(t, "database:\n  password: database-secret\nauth:\n  private_key: private-secret\n"), "--redact"})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
 	require.NotContains(t, output.String(), "private-secret")
+	require.NotContains(t, output.String(), "database-secret")
 	require.Contains(t, output.String(), "[REDACTED]")
+}
+
+func TestDatabaseStatusReportsUninitializedSchema(t *testing.T) {
+	output := new(bytes.Buffer)
+	cmd := NewRoot(Dependencies{
+		Load: config.Load,
+		DBStatus: func(context.Context, config.Config) (database.Status, error) {
+			return database.Status{ServerVersion: "17.2", Expected: 1}, nil
+		},
+	})
+	cmd.SetOut(output)
+	cmd.SetArgs([]string{"db", "status", "--config", testConfigPath(t, "")})
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	require.Contains(t, output.String(), "Schema 尚未初始化")
+}
+
+func TestDatabaseInitRequiresExplicitConfirmation(t *testing.T) {
+	called := false
+	cmd := NewRoot(Dependencies{
+		Load: config.Load,
+		DBInit: func(context.Context, config.Config) error {
+			called = true
+			return nil
+		},
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetArgs([]string{"db", "init", "--yes", "--config", testConfigPath(t, "")})
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	require.True(t, called)
+}
+
+func TestCreateAdminReadsPasswordFileWithoutPrintingPassword(t *testing.T) {
+	passwordFile := filepath.Join(t.TempDir(), "admin-password")
+	require.NoError(t, os.WriteFile(passwordFile, []byte("ValidPassword9\n"), 0o600))
+	output := new(bytes.Buffer)
+	var captured user.CreateInput
+	cmd := NewRoot(Dependencies{
+		Load: config.Load,
+		AddAdmin: func(_ context.Context, _ config.Config, input user.CreateInput) (user.User, error) {
+			captured = input
+			return user.User{ID: uuid.MustParse("019befd7-98d0-7000-8000-000000000003"), Username: input.Username}, nil
+		},
+	})
+	cmd.SetOut(output)
+	cmd.SetArgs([]string{"user", "create-admin", "--username", "admin", "--password-file", passwordFile, "--config", testConfigPath(t, "")})
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	require.Equal(t, "admin", captured.Username)
+	require.Equal(t, len("ValidPassword9"), len(captured.Password))
+	require.NotContains(t, output.String(), "ValidPassword")
 }
 
 func TestConfigPrintRequiresRedact(t *testing.T) {
