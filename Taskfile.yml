@@ -77,6 +77,16 @@ tasks:
     cmds:
       - go run ./cmd/goba serve --config configs/config.local.yaml --load-dotenv
 
+  compose:up:
+    desc: 构建并启动本地 Compose 服务
+    cmds:
+      - docker compose up --build --detach --wait
+
+  compose:down:
+    desc: 停止并删除本地 Compose 服务
+    cmds:
+      - docker compose down --remove-orphans
+
   check:
     desc: 执行完整本地验收
     cmds:

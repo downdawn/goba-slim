@@ -35,34 +35,26 @@ jobs:
           version: v2.12.2
   docker:
     runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: goba-slim-ci
+      GOBA_PORT: "18000"
     steps:
       - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build -f deployments/Dockerfile -t goba-slim:ci .
-      - name: Verify image
+      - name: Verify Compose configuration
+        run: docker compose config --quiet
+      - name: Verify Compose stack
         shell: bash
         run: |
           set -euo pipefail
-          docker run --detach \
-            --name goba-slim-ci \
-            --publish 127.0.0.1:8000:8000 \
-            --volume "$PWD/configs/config.example.yaml:/etc/goba/config.yaml:ro" \
-            goba-slim:ci
           cleanup() {
-            docker rm --force goba-slim-ci >/dev/null 2>&1 || true
+            docker compose down --remove-orphans >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8000/livez >/dev/null; then
-              break
-            fi
-            if [ "$attempt" -eq 30 ]; then
-              docker logs goba-slim-ci
-              exit 1
-            fi
-            sleep 1
-          done
-          curl --fail --silent http://127.0.0.1:8000/readyz >/dev/null
-          curl --fail --silent http://127.0.0.1:8000/openapi.json >/dev/null
-          test "$(docker image inspect --format '{{.Config.User}}' goba-slim:ci)" != ""
-          test "$(docker image inspect --format '{{.Config.User}}' goba-slim:ci)" != "0"
+          docker compose up --build --detach --wait
+          curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/livez" >/dev/null
+          curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/readyz" >/dev/null
+          curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/openapi.json" >/dev/null
+          image_id="$(docker compose images --quiet goba)"
+          image_user="$(docker image inspect --format '{{.Config.User}}' "$image_id")"
+          test -n "$image_user"
+          test "$image_user" != "0"

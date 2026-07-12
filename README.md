@@ -47,25 +47,19 @@ go run ./cmd/goba serve --config configs/config.example.yaml
 
 ### 使用 Docker
 
-macOS / Linux：
+```bash
+docker compose up --build --wait
+```
+
+服务启动后访问 `http://localhost:8000`。停止并删除容器：
 
 ```bash
-docker build -f deployments/Dockerfile -t goba-slim:local .
-docker run --rm -p 8000:8000 \
-  -v "$(pwd)/configs/config.example.yaml:/etc/goba/config.yaml:ro" \
-  goba-slim:local
+docker compose down
 ```
 
-Windows PowerShell：
+通过 `GOBA_PORT` 可以修改宿主端口，例如 `GOBA_PORT=18000 docker compose up --build --wait`。PowerShell 使用 `$env:GOBA_PORT=18000` 设置当前终端环境变量。
 
-```powershell
-docker build -f deployments/Dockerfile -t goba-slim:local .
-docker run --rm -p 8000:8000 `
-  -v "${PWD}/configs/config.example.yaml:/etc/goba/config.yaml:ro" `
-  goba-slim:local
-```
-
-镜像以非 root 用户运行；生产 TLS 应由 Nginx、Ingress 或 API Gateway 终止。
+当前 Compose 只编排 GoBA Slim；PostgreSQL 和 Redis 将在应用实际接入后加入。镜像以非 root 用户运行，生产 TLS 应由 Nginx、Ingress 或 API Gateway 终止。
 
 ## 配置
 
@@ -86,6 +80,8 @@ task generate:check
 task test
 task lint
 task check
+task compose:up
+task compose:down
 ```
 
 `api/openapi/openapi.yaml` 是 HTTP 契约事实来源，生成代码不得手工修改。工程边界、完整命令和测试要求见 [`docs/development.md`](docs/development.md)。

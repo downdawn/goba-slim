@@ -17,6 +17,8 @@ task test
 task test:race
 task vuln
 task check
+task compose:up
+task compose:down
 ```
 
 Windows 未将 Go 加入 `PATH` 时，可用完整路径执行 `go` 命令；Taskfile 与 CI 均假设 `go` 已在 `PATH`，以支持 Windows、macOS 和 Linux。
@@ -58,9 +60,20 @@ task lint
 git diff --check
 ```
 
-Docker 镜像仅承载 HTTP 服务并以非 root 用户运行，TLS 证书由宿主 Nginx、Ingress 或 API Gateway 管理。本机缺少 Docker 时必须如实记录，并由 CI 或目标环境补验：
+本地容器开发使用 Compose：
+
+```bash
+docker compose up --build --wait
+docker compose down
+```
+
+当前 Compose 只包含应用服务。PostgreSQL 和 Redis 应在代码实际接入后再加入，不维护无消费者的基础设施配置。
+
+镜像级构建和排障可直接执行：
 
 ```bash
 docker build -f deployments/Dockerfile -t goba-slim:foundation .
 docker run --rm -p 8000:8000 -v /path/to/config.yaml:/etc/goba/config.yaml:ro goba-slim:foundation
 ```
+
+镜像以非 root 用户运行，TLS 证书由宿主 Nginx、Ingress 或 API Gateway 管理。本机缺少 Docker 时必须如实记录，并由 CI 或目标环境补验。

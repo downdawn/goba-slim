@@ -1,0 +1,20 @@
+services:
+  goba:
+    build:
+      context: .
+      dockerfile: deployments/Dockerfile
+    image: goba-slim:local
+    ports:
+      - "${GOBA_PORT:-8000}:8000"
+    volumes:
+      - type: bind
+        source: ./configs/config.example.yaml
+        target: /etc/goba/config.yaml
+        read_only: true
+    healthcheck:
+      test: ["CMD", "/goba", "config", "check", "--config", "/etc/goba/config.yaml"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    init: true
