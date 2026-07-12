@@ -16,7 +16,7 @@ jobs:
       - run: go mod download
       - run: go tool oapi-codegen --package generated --generate gin,types,embedded-spec -o api/openapi/generated/openapi.gen.go api/openapi/openapi.yaml
       - run: git diff --exit-code -- api/openapi/generated/openapi.gen.go
-      - run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+      - run: go tool golangci-lint fmt --diff
       - run: go vet ./...
       - run: go test ./...
       - run: go test -race ./...
@@ -37,7 +37,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
+      - name: Build image
+        run: docker build -f deployments/Dockerfile -t goba-slim:ci .
+      - name: Verify image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach \
+            --name goba-slim-ci \
+            --publish 127.0.0.1:8000:8000 \
+            --volume "$PWD/configs/config.example.yaml:/etc/goba/config.yaml:ro" \
+            goba-slim:ci
+          cleanup() {
+            docker rm --force goba-slim-ci >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8000/livez >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs goba-slim-ci
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8000/readyz >/dev/null
+          curl --fail --silent http://127.0.0.1:8000/openapi.json >/dev/null
+          test "$(docker image inspect --format '{{.Config.User}}' goba-slim:ci)" != ""
+          test "$(docker image inspect --format '{{.Config.User}}' goba-slim:ci)" != "0"

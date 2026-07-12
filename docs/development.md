@@ -4,7 +4,7 @@
 
 - Go 1.26
 - Task（可选）
-- Docker（可选；本地无法运行时由 CI 或目标环境补验）
+- Docker（修改或验证容器链路时需要）
 
 ## 常用命令
 
@@ -58,7 +58,7 @@ task lint
 git diff --check
 ```
 
-Docker 镜像仅承载 HTTP 服务，TLS 证书由宿主 Nginx、Ingress 或 API Gateway 管理。当前机器若缺少 Docker，不得宣称已完成容器构建或运行验证；应由 CI 或目标环境执行：
+Docker 镜像仅承载 HTTP 服务并以非 root 用户运行，TLS 证书由宿主 Nginx、Ingress 或 API Gateway 管理。本机缺少 Docker 时必须如实记录，并由 CI 或目标环境补验：
 
 ```bash
 docker build -f deployments/Dockerfile -t goba-slim:foundation .

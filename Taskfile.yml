@@ -64,9 +64,7 @@ tasks:
     desc: 初始化不覆盖已有文件的本地开发配置
     cmds:
       - cmd: |
-          if (Test-Path ".env") -or (Test-Path "configs/config.local.yaml") { Write-Error "本地配置已存在，拒绝覆盖"; exit 1 }
-          Copy-Item .env.example .env
-          Copy-Item configs/config.example.yaml configs/config.local.yaml
+          powershell.exe -NoProfile -NonInteractive -Command "if ((Test-Path '.env') -or (Test-Path 'configs/config.local.yaml')) { Write-Error '本地配置已存在，拒绝覆盖'; exit 1 }; Copy-Item '.env.example' '.env'; Copy-Item 'configs/config.example.yaml' 'configs/config.local.yaml'"
         platforms: [windows]
       - cmd: |
           if [ -e .env ] || [ -e configs/config.local.yaml ]; then echo "本地配置已存在，拒绝覆盖" >&2; exit 1; fi

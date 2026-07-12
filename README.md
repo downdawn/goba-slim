@@ -1,85 +1,123 @@
 # GoBA Slim
 
-GoBA Slim 是面向 Go 服务的工程内核：以显式组合根、强类型配置、模块生命周期和安全 HTTP 边界为基础，供后续业务模块复用。
+[![CI](https://github.com/downdawn/goba-slim/actions/workflows/ci.yml/badge.svg)](https://github.com/downdawn/goba-slim/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## 当前 Phase 1 能力
+GoBA Slim 是一个面向 Go HTTP 服务的精简工程内核。它提供显式组合根、强类型配置、模块生命周期、安全 HTTP 边界和可执行的质量门禁，供后续业务模块复用。
 
-- 强类型配置：默认值、YAML 与 `GOBA_` 环境变量按顺序覆盖；Secret 支持明文或 `_FILE` 文件来源（二者互斥）。
-- `slog` 结构化日志、敏感字段脱敏、请求 ID、统一 HTTP 错误响应。
-- Gin HTTP Server、OpenAPI 契约与 `/livez`、`/readyz` 健康检查。
-- 模块 Manifest、依赖排序、循环检测及启动/停止生命周期。
-- Cobra CLI：`version`、`config check`、`config print --redact` 与 `serve`。
-- OpenAPI 生成、测试、静态检查、漏洞扫描、CI 与 Docker 构建定义。
+项目当前处于 **Phase 1**：基础内核可运行、可测试、可构建为容器，但还不是完整的 RBAC 后端。PostgreSQL、Redis、用户、认证、文件和 systemconfig 等运行时能力将在后续阶段按明确契约加入。
 
-## 依赖
+## 核心能力
 
-- Go 1.26
-- [Task](https://taskfile.dev/)（可选，用于统一开发命令）
-- Docker（可选，用于镜像构建；生产 TLS 由宿主 Nginx 或网关终止）
+- 默认值、YAML、`.env` 和 `GOBA_` 环境变量组成的强类型配置链路。
+- Secret 明文与 `_FILE` 文件来源互斥，日志和 CLI 输出默认脱敏。
+- `slog` 结构化日志、请求 ID、安全响应头、CORS、请求体限制和统一错误响应。
+- Gin HTTP Server 与 OpenAPI 契约生成，提供存活、就绪和开发文档端点。
+- 模块 Manifest、依赖排序、循环检测、启动、停止和健康检查生命周期。
+- Cobra CLI、单元测试、竞态测试、静态检查、漏洞扫描、CI 和非 root 容器镜像。
 
 ## 快速开始
 
-### Windows PowerShell
+### 从源码运行
 
-```powershell
-task init
-& 'E:\Program Files\Go\bin\go.exe' run ./cmd/goba config check --config configs/config.local.yaml --load-dotenv
-& 'E:\Program Files\Go\bin\go.exe' run ./cmd/goba serve --config configs/config.local.yaml --load-dotenv
-```
-
-### macOS / Linux
+要求 Go 1.26+；[Task](https://taskfile.dev/) 用于统一跨平台命令。
 
 ```bash
+git clone https://github.com/downdawn/goba-slim.git
+cd goba-slim
 task init
-go run ./cmd/goba config check --config configs/config.local.yaml --load-dotenv
-go run ./cmd/goba serve --config configs/config.local.yaml --load-dotenv
+task run
 ```
 
-示例配置监听 `0.0.0.0:8000`。启动后可访问：
+`task init` 创建 `.env` 和 `configs/config.local.yaml`。任一文件已存在时任务会拒绝覆盖。
+
+没有 Task 时可以直接运行：
+
+```bash
+go run ./cmd/goba serve --config configs/config.example.yaml
+```
+
+服务默认监听 `http://localhost:8000`：
 
 - `GET /livez`：进程存活检查。
 - `GET /readyz`：依赖和模块就绪检查。
-- `GET /openapi.json`、`GET /docs`：仅 development 且 `docs_enabled: true` 时提供。
+- `GET /docs`：开发环境 API 文档。
+- `GET /openapi.json`：OpenAPI 契约。
+
+### 使用 Docker
+
+macOS / Linux：
+
+```bash
+docker build -f deployments/Dockerfile -t goba-slim:local .
+docker run --rm -p 8000:8000 \
+  -v "$(pwd)/configs/config.example.yaml:/etc/goba/config.yaml:ro" \
+  goba-slim:local
+```
+
+Windows PowerShell：
+
+```powershell
+docker build -f deployments/Dockerfile -t goba-slim:local .
+docker run --rm -p 8000:8000 `
+  -v "${PWD}/configs/config.example.yaml:/etc/goba/config.yaml:ro" `
+  goba-slim:local
+```
+
+镜像以非 root 用户运行；生产 TLS 应由 Nginx、Ingress 或 API Gateway 终止。
 
 ## 配置
 
-配置优先级为：内置默认值 → YAML 文件 → `GOBA_` 环境变量。列表型环境变量使用英文逗号分隔，例如 `GOBA_CORS_ALLOW_ORIGINS=https://app.example.com,https://admin.example.com`。
+配置优先级为：内置默认值 → YAML 文件 → `.env`（仅显式启用）→ `GOBA_` 环境变量。列表型环境变量使用英文逗号分隔，例如：
 
-执行 `task init` 会从 `.env.example` 和 `configs/config.example.yaml` 生成 `.env` 与 `configs/config.local.yaml`；任一目标文件已存在时任务会失败，绝不覆盖本地修改。`.env` 仅供本地开发，默认不会被程序自动读取；部署时通过编排平台注入环境变量。Secret 不得提交、记录或放入镜像。`GOBA_AUTH_PRIVATE_KEY` 和 `GOBA_AUTH_PRIVATE_KEY_FILE` 只能配置一个，生产部署建议通过挂载文件使用后者。
+```text
+GOBA_CORS_ALLOW_ORIGINS=https://app.example.com,https://admin.example.com
+```
 
-生产环境必须设置 `GOBA_APP_ENVIRONMENT=production`，并保持 `GOBA_APP_DEBUG=false` 与 `GOBA_APP_DOCS_ENABLED=false`。
+`.env` 只用于本地开发，默认不会自动读取。Secret 不得提交、记录或放入镜像；生产环境建议通过挂载文件使用 `_FILE` 配置。生产环境还必须设置 `GOBA_APP_ENVIRONMENT=production`，并保持 debug 和 API 文档关闭。
 
-## 常用命令
+完整示例见 [`configs/config.example.yaml`](configs/config.example.yaml) 和 [`.env.example`](.env.example)。
+
+## 开发与验证
 
 ```bash
-task init
 task generate:check
 task test
 task lint
 task check
 ```
 
-没有 Task 时可执行等价命令：
+`api/openapi/openapi.yaml` 是 HTTP 契约事实来源，生成代码不得手工修改。工程边界、完整命令和测试要求见 [`docs/development.md`](docs/development.md)。
 
-```bash
-go tool oapi-codegen --package generated --generate gin,types,embedded-spec -o api/openapi/generated/openapi.gen.go api/openapi/openapi.yaml
-go test ./...
-go vet ./...
-go tool govulncheck ./...
-go build -o bin/goba ./cmd/goba
+架构边界见 [`docs/architecture.md`](docs/architecture.md)，后续阶段见 [`docs/roadmap.md`](docs/roadmap.md)。
+
+## 项目结构
+
+```text
+api/openapi/                 OpenAPI 契约与生成代码
+cmd/goba/                    进程入口
+configs/                     非敏感示例配置
+deployments/                 容器构建定义
+internal/app/                应用组合根与生命周期
+internal/module/             模块声明与运行时
+internal/platform/           配置、日志、HTTP 和健康检查
+internal/transport/httpapi/  Gin 与 OpenAPI 传输边界
 ```
 
-## 目录说明
+## 参与项目
 
-- `cmd/goba`：进程入口与信号处理。
-- `internal/app`：Composition Root 与应用生命周期。
-- `internal/platform`：配置、日志、HTTP Server、健康检查等平台能力。
-- `internal/module`：模块声明、解析和生命周期。
-- `internal/transport/httpapi`：Gin 与 OpenAPI 的 HTTP 传输边界。
-- `api/openapi`：HTTP 契约及生成代码。
-- `configs`：非敏感示例配置。
-- `deployments`：容器构建定义。
+提交代码前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。安全问题请按 [`SECURITY.md`](SECURITY.md) 私下报告，不要在公开 Issue 中披露漏洞细节或 Secret。
 
-## 设计与后续范围
+## 致谢
 
-工程规范见 `AGENTS.md`，开发约定见 `docs/development.md`。当前 Phase 1 不包含 PostgreSQL、Redis、用户、认证、文件或 systemconfig 的运行时实现；这些能力将在后续模块阶段按契约和显式 SQL 逐步加入。
+GoBA Slim 的产品范围和架构取舍参考了以下开源项目：
+
+- [fastapi-practices/fba-slim](https://github.com/fastapi-practices/fba-slim)
+- [fastapi-practices/fastapi-best-architecture](https://github.com/fastapi-practices/fastapi-best-architecture)
+
+GoBA Slim 是独立实现的非官方项目，与上述项目不存在隶属或官方移植关系。
+
+## 许可证
+
+本项目采用 [Apache License 2.0](LICENSE)。

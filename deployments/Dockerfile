@@ -22,4 +22,6 @@ COPY --from=build /out/goba /goba
 
 EXPOSE 8000
 
+USER nonroot:nonroot
+
 ENTRYPOINT ["/goba", "serve", "--config", "/etc/goba/config.yaml"]
