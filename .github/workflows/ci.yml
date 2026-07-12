@@ -47,12 +47,14 @@ jobs:
         run: |
           set -euo pipefail
           export GOBA_DATABASE_PASSWORD="$(openssl rand -hex 24)"
+          export GOBA_REDIS_PASSWORD="$(openssl rand -hex 24)"
+          export GOBA_AUTH_PRIVATE_KEY="$(openssl genpkey -algorithm Ed25519)"
           cleanup() {
             docker compose down --volumes --remove-orphans >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
           docker compose config --quiet
-          docker compose up --detach --wait postgres
+          docker compose up --detach --wait postgres redis
           docker compose --profile tools run --build --rm db-init
           docker compose up --build --detach --wait
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/livez" >/dev/null

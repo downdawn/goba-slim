@@ -8,6 +8,7 @@ import (
 
 	"github.com/downdawn/goba-slim/api/openapi/generated"
 	"github.com/downdawn/goba-slim/internal/platform/config"
+	"github.com/downdawn/goba-slim/internal/shared/apperror"
 	"github.com/downdawn/goba-slim/internal/transport/httpapi"
 	"github.com/gin-gonic/gin"
 )
@@ -43,7 +44,9 @@ func NewRouter(options Options) *gin.Engine {
 		timeoutMiddleware(options.Config.Server.ReadTimeout),
 	)
 
-	generated.RegisterHandlers(router, options.Handler)
+	generated.RegisterHandlersWithOptions(router, options.Handler, generated.GinServerOptions{ErrorHandler: func(ctx *gin.Context, err error, _ int) {
+		httpapi.WriteError(ctx, apperror.Validation("INVALID_REQUEST", "error.invalid_request", "请求参数无效", err))
+	}})
 	if options.Config.App.Environment != "production" && options.Config.App.DocsEnabled {
 		registerDocumentation(router)
 	}

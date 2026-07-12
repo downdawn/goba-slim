@@ -18,7 +18,9 @@ Phase 2 不开放用户 HTTP 接口；相关路由将在认证边界建立后接
 
 ## Phase 3：Redis 与认证会话
 
-建立 Redis 用途级接口、登录、短期 Access Token、可撤销 Refresh Token 和会话生命周期。重点验证并发刷新、Token 重用、登出撤销、限流以及 Redis 故障时的安全行为。
+**状态：已完成。**
+
+已建立 Redis 用途级接口、登录、短期 EdDSA Access Token、可撤销 Refresh Token 和会话生命周期。验收覆盖并发刷新、Token 重用、登出撤销、限流以及 Redis 故障时的 fail closed 行为。
 
 ## Phase 4：可选文件模块
 

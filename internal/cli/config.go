@@ -65,6 +65,7 @@ type redactedConfig struct {
 	App      redactedAppConfig      `json:"app"`
 	Server   redactedServerConfig   `json:"server"`
 	Database redactedDatabaseConfig `json:"database"`
+	Redis    redactedRedisConfig    `json:"redis"`
 	CORS     redactedCORSConfig     `json:"cors"`
 	Auth     redactedAuthConfig     `json:"auth"`
 	Log      redactedLogConfig      `json:"log"`
@@ -99,6 +100,21 @@ type redactedDatabaseConfig struct {
 	ConnectTimeout time.Duration `json:"connect_timeout"`
 	HealthTimeout  time.Duration `json:"health_timeout"`
 }
+type redactedRedisConfig struct {
+	Host           string        `json:"host"`
+	Port           int           `json:"port"`
+	Database       int           `json:"database"`
+	Username       string        `json:"username"`
+	Password       string        `json:"password"`
+	PasswordFile   string        `json:"password_file"`
+	TLS            bool          `json:"tls"`
+	PoolSize       int           `json:"pool_size"`
+	MinIdleConns   int           `json:"min_idle_connections"`
+	ConnectTimeout time.Duration `json:"connect_timeout"`
+	ReadTimeout    time.Duration `json:"read_timeout"`
+	WriteTimeout   time.Duration `json:"write_timeout"`
+	HealthTimeout  time.Duration `json:"health_timeout"`
+}
 type redactedCORSConfig struct {
 	AllowOrigins     []string `json:"allow_origins"`
 	AllowMethods     []string `json:"allow_methods"`
@@ -112,6 +128,14 @@ type redactedAuthConfig struct {
 	RefreshTokenTTL time.Duration `json:"refresh_token_ttl"`
 	PrivateKey      string        `json:"private_key"`
 	PrivateKeyFile  string        `json:"private_key_file"`
+	KeyID           string        `json:"key_id"`
+	RefreshCookie   string        `json:"refresh_cookie"`
+	CookieDomain    string        `json:"cookie_domain"`
+	CookiePath      string        `json:"cookie_path"`
+	CookieSecure    bool          `json:"cookie_secure"`
+	CookieSameSite  string        `json:"cookie_same_site"`
+	LoginAttempts   int           `json:"login_attempts"`
+	LoginWindow     time.Duration `json:"login_window"`
 }
 type redactedLogConfig struct {
 	Level  string `json:"level"`
@@ -127,8 +151,9 @@ func newRedactedConfig(cfg config.Config) redactedConfig {
 		App:      redactedAppConfig{Environment: cfg.App.Environment, Debug: cfg.App.Debug, DocsEnabled: cfg.App.DocsEnabled},
 		Server:   redactedServerConfig{Host: cfg.Server.Host, Port: cfg.Server.Port, HeaderTimeout: cfg.Server.HeaderTimeout, ReadTimeout: cfg.Server.ReadTimeout, WriteTimeout: cfg.Server.WriteTimeout, IdleTimeout: cfg.Server.IdleTimeout, ShutdownTimeout: cfg.Server.ShutdownTimeout, TrustedProxies: cfg.Server.TrustedProxies},
 		Database: redactedDatabaseConfig{Host: cfg.Database.Host, Port: cfg.Database.Port, Name: cfg.Database.Name, User: cfg.Database.User, Password: cfg.Database.Password.String(), PasswordFile: cfg.Database.PasswordFile, SSLMode: cfg.Database.SSLMode, MinConnections: cfg.Database.MinConnections, MaxConnections: cfg.Database.MaxConnections, ConnectTimeout: cfg.Database.ConnectTimeout, HealthTimeout: cfg.Database.HealthTimeout},
+		Redis:    redactedRedisConfig{Host: cfg.Redis.Host, Port: cfg.Redis.Port, Database: cfg.Redis.Database, Username: cfg.Redis.Username, Password: cfg.Redis.Password.String(), PasswordFile: cfg.Redis.PasswordFile, TLS: cfg.Redis.TLS, PoolSize: cfg.Redis.PoolSize, MinIdleConns: cfg.Redis.MinIdleConns, ConnectTimeout: cfg.Redis.ConnectTimeout, ReadTimeout: cfg.Redis.ReadTimeout, WriteTimeout: cfg.Redis.WriteTimeout, HealthTimeout: cfg.Redis.HealthTimeout},
 		CORS:     redactedCORSConfig{AllowOrigins: cfg.CORS.AllowOrigins, AllowMethods: cfg.CORS.AllowMethods, AllowHeaders: cfg.CORS.AllowHeaders, AllowCredentials: cfg.CORS.AllowCredentials},
-		Auth:     redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile},
+		Auth:     redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile, KeyID: cfg.Auth.KeyID, RefreshCookie: cfg.Auth.RefreshCookie, CookieDomain: cfg.Auth.CookieDomain, CookiePath: cfg.Auth.CookiePath, CookieSecure: cfg.Auth.CookieSecure, CookieSameSite: cfg.Auth.CookieSameSite, LoginAttempts: cfg.Auth.LoginAttempts, LoginWindow: cfg.Auth.LoginWindow},
 		Log:      redactedLogConfig{Level: cfg.Log.Level, Format: cfg.Log.Format},
 		Modules:  redactedModuleConfig{File: cfg.Modules.File, SystemConfig: cfg.Modules.SystemConfig},
 	}

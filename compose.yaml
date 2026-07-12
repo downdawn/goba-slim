@@ -16,6 +16,19 @@ services:
       retries: 10
     init: true
 
+  redis:
+    image: redis:7-alpine
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec redis-server --requirepass \"$$(cat /run/secrets/redis_password)\""]
+    secrets:
+      - redis_password
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$(cat /run/secrets/redis_password)\" ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    init: true
+
   goba:
     build:
       context: .
@@ -26,10 +39,17 @@ services:
     environment:
       GOBA_DATABASE_HOST: postgres
       GOBA_DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      GOBA_REDIS_HOST: redis
+      GOBA_REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      GOBA_AUTH_PRIVATE_KEY_FILE: /run/secrets/auth_private_key
     secrets:
       - database_password
+      - redis_password
+      - auth_private_key
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - type: bind
@@ -68,6 +88,10 @@ services:
 secrets:
   database_password:
     environment: GOBA_DATABASE_PASSWORD
+  redis_password:
+    environment: GOBA_REDIS_PASSWORD
+  auth_private_key:
+    environment: GOBA_AUTH_PRIVATE_KEY
 
 volumes:
   postgres_data:

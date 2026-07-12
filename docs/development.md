@@ -56,6 +56,10 @@ task db:init
 
 sqlc 只在数据适配器中使用，生成类型不得进入业务服务。用户事务由应用服务通过 Unit of Work 控制，事务对象不得写入 `context.Context`。Repository 测试使用真实 PostgreSQL，不以 SQLite 或 SQL Mock 代替主要保证。
 
+## Redis 与认证
+
+Redis 是认证会话的必要依赖，业务服务只依赖 `SessionStore` 与 `RateLimiter`。Refresh Token 轮换和重用检测由内嵌 Lua 保证原子性；不得使用 `KEYS` 或在 Redis 保存明文 Token。认证集成测试覆盖并发刷新、重放撤销、Cookie、Origin、登出和 Redis 故障时的 fail closed 行为。
+
 ## 配置与 Secret
 
 配置按默认值、YAML、`GOBA_` 环境变量覆盖。`.env` 不会自动加载，只允许本地开发显式选择加载；生产部署由平台注入环境变量。Secret 的明文值与 `_FILE` 来源互斥，日志和 CLI 输出必须保持脱敏。
@@ -78,7 +82,7 @@ docker compose up --build --wait
 docker compose down
 ```
 
-Compose 包含应用和 PostgreSQL。首次使用前在当前 Shell 设置 `GOBA_DATABASE_PASSWORD`，再执行 `task compose:init`；后续使用 `task compose:up`。Redis 在 Phase 3 实际接入前不加入。
+Compose 包含应用、PostgreSQL 和 Redis。首次使用前在当前 Shell 设置数据库密码、Redis 密码和 Ed25519 私钥 Secret，再执行 `task compose:init`；后续使用 `task compose:up`。
 
 镜像级构建和排障可直接执行：
 

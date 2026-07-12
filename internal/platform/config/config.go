@@ -20,6 +20,7 @@ type Config struct {
 	App      AppConfig      `koanf:"app"`
 	Server   ServerConfig   `koanf:"server"`
 	Database DatabaseConfig `koanf:"database"`
+	Redis    RedisConfig    `koanf:"redis"`
 	CORS     CORSConfig     `koanf:"cors"`
 	Auth     AuthConfig     `koanf:"auth"`
 	Log      LogConfig      `koanf:"log"`
@@ -57,6 +58,22 @@ type DatabaseConfig struct {
 	HealthTimeout  time.Duration `koanf:"health_timeout"`
 }
 
+type RedisConfig struct {
+	Host           string        `koanf:"host"`
+	Port           int           `koanf:"port"`
+	Database       int           `koanf:"database"`
+	Username       string        `koanf:"username"`
+	Password       Secret        `koanf:"password"`
+	PasswordFile   string        `koanf:"password_file"`
+	TLS            bool          `koanf:"tls"`
+	PoolSize       int           `koanf:"pool_size"`
+	MinIdleConns   int           `koanf:"min_idle_connections"`
+	ConnectTimeout time.Duration `koanf:"connect_timeout"`
+	ReadTimeout    time.Duration `koanf:"read_timeout"`
+	WriteTimeout   time.Duration `koanf:"write_timeout"`
+	HealthTimeout  time.Duration `koanf:"health_timeout"`
+}
+
 type CORSConfig struct {
 	AllowOrigins     []string `koanf:"allow_origins"`
 	AllowMethods     []string `koanf:"allow_methods"`
@@ -71,6 +88,14 @@ type AuthConfig struct {
 	RefreshTokenTTL time.Duration `koanf:"refresh_token_ttl"`
 	PrivateKey      Secret        `koanf:"private_key"`
 	PrivateKeyFile  string        `koanf:"private_key_file"`
+	KeyID           string        `koanf:"key_id"`
+	RefreshCookie   string        `koanf:"refresh_cookie"`
+	CookieDomain    string        `koanf:"cookie_domain"`
+	CookiePath      string        `koanf:"cookie_path"`
+	CookieSecure    bool          `koanf:"cookie_secure"`
+	CookieSameSite  string        `koanf:"cookie_same_site"`
+	LoginAttempts   int           `koanf:"login_attempts"`
+	LoginWindow     time.Duration `koanf:"login_window"`
 }
 
 type LogConfig struct {
@@ -112,12 +137,22 @@ func Default() Config {
 			Host: "127.0.0.1", Port: 5432, Name: "goba", User: "goba", SSLMode: "disable",
 			MinConnections: 1, MaxConnections: 10, ConnectTimeout: 5 * time.Second, HealthTimeout: 2 * time.Second,
 		},
+		Redis: RedisConfig{
+			Host: "127.0.0.1", Port: 6379, PoolSize: 10, MinIdleConns: 1,
+			ConnectTimeout: 5 * time.Second, ReadTimeout: 3 * time.Second,
+			WriteTimeout: 3 * time.Second, HealthTimeout: 2 * time.Second,
+		},
 		CORS: CORSConfig{
 			AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 			AllowHeaders: []string{"Content-Type", "Authorization", "X-Request-ID"},
 		},
-		Auth: AuthConfig{AccessTokenTTL: 15 * time.Minute, RefreshTokenTTL: 720 * time.Hour},
-		Log:  LogConfig{Level: "info", Format: "json"},
+		Auth: AuthConfig{
+			Issuer: "goba-slim", Audience: "goba-slim", KeyID: "default",
+			AccessTokenTTL: 15 * time.Minute, RefreshTokenTTL: 720 * time.Hour,
+			RefreshCookie: "goba_refresh", CookiePath: "/api/v1/auth", CookieSameSite: "strict",
+			LoginAttempts: 5, LoginWindow: time.Minute,
+		},
+		Log: LogConfig{Level: "info", Format: "json"},
 	}
 }
 
@@ -277,6 +312,25 @@ func applyMap(cfg *Config, data map[string]any) {
 		setDuration(m, "connect_timeout", &cfg.Database.ConnectTimeout)
 		setDuration(m, "health_timeout", &cfg.Database.HealthTimeout)
 	}
+	if m := section("redis"); m != nil {
+		setString(m, "host", &cfg.Redis.Host)
+		setInt(m, "port", &cfg.Redis.Port)
+		setInt(m, "database", &cfg.Redis.Database)
+		setString(m, "username", &cfg.Redis.Username)
+		var password string
+		setString(m, "password", &password)
+		if password != "" {
+			cfg.Redis.Password = NewSecret(password)
+		}
+		setString(m, "password_file", &cfg.Redis.PasswordFile)
+		setBool(m, "tls", &cfg.Redis.TLS)
+		setInt(m, "pool_size", &cfg.Redis.PoolSize)
+		setInt(m, "min_idle_connections", &cfg.Redis.MinIdleConns)
+		setDuration(m, "connect_timeout", &cfg.Redis.ConnectTimeout)
+		setDuration(m, "read_timeout", &cfg.Redis.ReadTimeout)
+		setDuration(m, "write_timeout", &cfg.Redis.WriteTimeout)
+		setDuration(m, "health_timeout", &cfg.Redis.HealthTimeout)
+	}
 	if m := section("cors"); m != nil {
 		setStrings(m, "allow_origins", &cfg.CORS.AllowOrigins)
 		setStrings(m, "allow_methods", &cfg.CORS.AllowMethods)
@@ -294,6 +348,14 @@ func applyMap(cfg *Config, data map[string]any) {
 		setString(m, "private_key_file", &cfg.Auth.PrivateKeyFile)
 		setDuration(m, "access_token_ttl", &cfg.Auth.AccessTokenTTL)
 		setDuration(m, "refresh_token_ttl", &cfg.Auth.RefreshTokenTTL)
+		setString(m, "key_id", &cfg.Auth.KeyID)
+		setString(m, "refresh_cookie", &cfg.Auth.RefreshCookie)
+		setString(m, "cookie_domain", &cfg.Auth.CookieDomain)
+		setString(m, "cookie_path", &cfg.Auth.CookiePath)
+		setBool(m, "cookie_secure", &cfg.Auth.CookieSecure)
+		setString(m, "cookie_same_site", &cfg.Auth.CookieSameSite)
+		setInt(m, "login_attempts", &cfg.Auth.LoginAttempts)
+		setDuration(m, "login_window", &cfg.Auth.LoginWindow)
 	}
 	if m := section("log"); m != nil {
 		setString(m, "level", &cfg.Log.Level)
@@ -415,6 +477,33 @@ func applyEnvironment(cfg *Config, values []string, prefix string) error {
 	if err := setDuration("DATABASE_HEALTH_TIMEOUT", &cfg.Database.HealthTimeout); err != nil {
 		return err
 	}
+	setString("REDIS_HOST", &cfg.Redis.Host)
+	if err := setInt("REDIS_PORT", &cfg.Redis.Port); err != nil {
+		return err
+	}
+	if err := setInt("REDIS_DATABASE", &cfg.Redis.Database); err != nil {
+		return err
+	}
+	setString("REDIS_USERNAME", &cfg.Redis.Username)
+	setString("REDIS_PASSWORD", (*string)(&cfg.Redis.Password))
+	setString("REDIS_PASSWORD_FILE", &cfg.Redis.PasswordFile)
+	if err := setBool("REDIS_TLS", &cfg.Redis.TLS); err != nil {
+		return err
+	}
+	if err := setInt("REDIS_POOL_SIZE", &cfg.Redis.PoolSize); err != nil {
+		return err
+	}
+	if err := setInt("REDIS_MIN_IDLE_CONNECTIONS", &cfg.Redis.MinIdleConns); err != nil {
+		return err
+	}
+	for _, item := range []struct {
+		key    string
+		target *time.Duration
+	}{{"REDIS_CONNECT_TIMEOUT", &cfg.Redis.ConnectTimeout}, {"REDIS_READ_TIMEOUT", &cfg.Redis.ReadTimeout}, {"REDIS_WRITE_TIMEOUT", &cfg.Redis.WriteTimeout}, {"REDIS_HEALTH_TIMEOUT", &cfg.Redis.HealthTimeout}} {
+		if err := setDuration(item.key, item.target); err != nil {
+			return err
+		}
+	}
 	setStrings("CORS_ALLOW_ORIGINS", &cfg.CORS.AllowOrigins)
 	setStrings("CORS_ALLOW_METHODS", &cfg.CORS.AllowMethods)
 	setStrings("CORS_ALLOW_HEADERS", &cfg.CORS.AllowHeaders)
@@ -425,6 +514,20 @@ func applyEnvironment(cfg *Config, values []string, prefix string) error {
 	setString("AUTH_AUDIENCE", &cfg.Auth.Audience)
 	setString("AUTH_PRIVATE_KEY", (*string)(&cfg.Auth.PrivateKey))
 	setString("AUTH_PRIVATE_KEY_FILE", &cfg.Auth.PrivateKeyFile)
+	setString("AUTH_KEY_ID", &cfg.Auth.KeyID)
+	setString("AUTH_REFRESH_COOKIE", &cfg.Auth.RefreshCookie)
+	setString("AUTH_COOKIE_DOMAIN", &cfg.Auth.CookieDomain)
+	setString("AUTH_COOKIE_PATH", &cfg.Auth.CookiePath)
+	if err := setBool("AUTH_COOKIE_SECURE", &cfg.Auth.CookieSecure); err != nil {
+		return err
+	}
+	setString("AUTH_COOKIE_SAME_SITE", &cfg.Auth.CookieSameSite)
+	if err := setInt("AUTH_LOGIN_ATTEMPTS", &cfg.Auth.LoginAttempts); err != nil {
+		return err
+	}
+	if err := setDuration("AUTH_LOGIN_WINDOW", &cfg.Auth.LoginWindow); err != nil {
+		return err
+	}
 	setString("LOG_LEVEL", &cfg.Log.Level)
 	setString("LOG_FORMAT", &cfg.Log.Format)
 	if err := setBool("MODULES_FILE", &cfg.Modules.File); err != nil {
@@ -453,6 +556,9 @@ func splitStrings(value string) []string {
 
 func resolveSecrets(cfg *Config, prefix string) error {
 	if err := resolveSecret(&cfg.Database.Password, &cfg.Database.PasswordFile, prefix+"DATABASE_PASSWORD"); err != nil {
+		return err
+	}
+	if err := resolveSecret(&cfg.Redis.Password, &cfg.Redis.PasswordFile, prefix+"REDIS_PASSWORD"); err != nil {
 		return err
 	}
 
@@ -517,6 +623,15 @@ func (c Config) Validate() error {
 	if c.Database.ConnectTimeout <= 0 || c.Database.HealthTimeout <= 0 {
 		return fmt.Errorf("database 超时时间必须大于 0")
 	}
+	if c.Redis.Host == "" || c.Redis.Port < 1 || c.Redis.Port > 65535 || c.Redis.Database < 0 {
+		return fmt.Errorf("redis 连接配置无效")
+	}
+	if c.Redis.PoolSize < 1 || c.Redis.MinIdleConns < 0 || c.Redis.MinIdleConns > c.Redis.PoolSize {
+		return fmt.Errorf("redis 连接池大小无效")
+	}
+	if c.Redis.ConnectTimeout <= 0 || c.Redis.ReadTimeout <= 0 || c.Redis.WriteTimeout <= 0 || c.Redis.HealthTimeout <= 0 {
+		return fmt.Errorf("redis 超时时间必须大于 0")
+	}
 	for _, item := range []struct {
 		field string
 		value time.Duration
@@ -530,6 +645,18 @@ func (c Config) Validate() error {
 	}
 	if c.Auth.RefreshTokenTTL <= 0 {
 		return fmt.Errorf("auth.refresh_token_ttl 必须大于 0")
+	}
+	if c.Auth.Issuer == "" || c.Auth.Audience == "" || c.Auth.KeyID == "" {
+		return fmt.Errorf("auth issuer、audience 和 key_id 不能为空")
+	}
+	if c.Auth.RefreshCookie == "" || c.Auth.CookiePath == "" || (c.Auth.CookieSameSite != "strict" && c.Auth.CookieSameSite != "lax" && c.Auth.CookieSameSite != "none") {
+		return fmt.Errorf("auth Cookie 配置无效")
+	}
+	if c.Auth.CookieSameSite == "none" && !c.Auth.CookieSecure {
+		return fmt.Errorf("auth.cookie_same_site 为 none 时必须启用 secure")
+	}
+	if c.Auth.LoginAttempts < 1 || c.Auth.LoginWindow <= 0 {
+		return fmt.Errorf("auth 登录限流配置无效")
 	}
 	if c.CORS.AllowCredentials {
 		for _, origin := range c.CORS.AllowOrigins {
@@ -551,6 +678,9 @@ func (c Config) Validate() error {
 	}
 	if c.App.Environment == "production" && (c.Database.SSLMode == "disable" || c.Database.SSLMode == "allow" || c.Database.SSLMode == "prefer") {
 		return fmt.Errorf("database.ssl_mode 在 production 环境必须启用 TLS")
+	}
+	if c.App.Environment == "production" && (!c.Auth.CookieSecure || !c.Redis.TLS) {
+		return fmt.Errorf("auth Cookie 与 Redis 在 production 环境必须启用安全传输")
 	}
 	if c.Log.Format != "json" && c.Log.Format != "text" {
 		return fmt.Errorf("log.format 必须是 json 或 text")

@@ -53,6 +53,17 @@ func TestLoadReadsDatabasePasswordFromFile(t *testing.T) {
 	require.Equal(t, "database-secret", cfg.Database.Password.Reveal())
 }
 
+func TestLoadReadsRedisPasswordFromFile(t *testing.T) {
+	secretFile := filepath.Join(t.TempDir(), "redis-password")
+	require.NoError(t, os.WriteFile(secretFile, []byte("redis-secret\n"), 0o600))
+	t.Setenv("GOBA_REDIS_PASSWORD_FILE", secretFile)
+
+	cfg, err := Load(t.Context(), Options{EnvironmentPrefix: "GOBA_"})
+
+	require.NoError(t, err)
+	require.Equal(t, "redis-secret", cfg.Redis.Password.Reveal())
+}
+
 func TestLoadRejectsAmbiguousSecretSources(t *testing.T) {
 	t.Setenv("GOBA_AUTH_PRIVATE_KEY", "plain-secret")
 	t.Setenv("GOBA_AUTH_PRIVATE_KEY_FILE", filepath.Join(t.TempDir(), "private.key"))
@@ -144,6 +155,7 @@ func TestValidateRejectsUnsafeConfigurations(t *testing.T) {
 			cfg.Database.SSLMode = "disable"
 		}, field: "database.ssl_mode"},
 		{name: "invalid database pool", mutate: func(cfg *Config) { cfg.Database.MaxConnections = 0 }, field: "database"},
+		{name: "invalid redis pool", mutate: func(cfg *Config) { cfg.Redis.PoolSize = 0 }, field: "redis"},
 	}
 
 	for _, test := range tests {

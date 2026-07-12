@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/mail"
 	"net/url"
@@ -20,6 +21,7 @@ type Service struct {
 	repository Repository
 	unitOfWork UnitOfWork
 	passwords  PasswordManager
+	dummyHash  string
 	clock      clock.Clock
 	ids        id.Generator
 }
@@ -28,7 +30,11 @@ func NewService(repository Repository, unitOfWork UnitOfWork, passwords Password
 	if repository == nil || unitOfWork == nil || passwords == nil || businessClock == nil || ids == nil {
 		return nil, fmt.Errorf("用户服务依赖不能为空")
 	}
-	return &Service{repository: repository, unitOfWork: unitOfWork, passwords: passwords, clock: businessClock, ids: ids}, nil
+	dummyHash, err := passwords.Hash("TimingDefensePassword9")
+	if err != nil {
+		return nil, fmt.Errorf("构造密码时序防护摘要: %w", err)
+	}
+	return &Service{repository: repository, unitOfWork: unitOfWork, passwords: passwords, dummyHash: dummyHash, clock: businessClock, ids: ids}, nil
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (User, error) {
@@ -71,6 +77,28 @@ func (s *Service) GetByID(ctx context.Context, userID uuid.UUID) (User, error) {
 
 func (s *Service) GetByUsername(ctx context.Context, username string) (User, error) {
 	return s.repository.GetByUsername(ctx, strings.ToLower(strings.TrimSpace(username)))
+}
+
+func (s *Service) VerifyCredentials(ctx context.Context, username, password string) (User, error) {
+	current, err := s.GetByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			_, _ = s.passwords.Verify(password, s.dummyHash)
+		}
+		return User{}, err
+	}
+	matched, err := s.passwords.Verify(password, current.PasswordHash)
+	if err != nil {
+		return User{}, fmt.Errorf("校验用户密码: %w", err)
+	}
+	if !matched {
+		return User{}, ErrPasswordMismatch
+	}
+	return current, nil
+}
+
+func (s *Service) RecordLogin(ctx context.Context, userID uuid.UUID) error {
+	return s.repository.UpdateLastLogin(ctx, userID, s.clock.Now().UTC())
 }
 
 func (s *Service) List(ctx context.Context, filter ListFilter) (Page, error) {

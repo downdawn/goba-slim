@@ -5,6 +5,8 @@ import (
 	"context"
 
 	"github.com/downdawn/goba-slim/internal/module"
+	"github.com/downdawn/goba-slim/internal/modules/auth"
+	"github.com/downdawn/goba-slim/internal/modules/user"
 )
 
 type server interface {
@@ -21,6 +23,8 @@ type buildOptions struct {
 	modules        []module.Module
 	coreModules    []module.Module
 	coreModulesSet bool
+	authService    *auth.Service
+	userService    *user.Service
 	server         server
 }
 

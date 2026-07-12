@@ -55,7 +55,7 @@ tasks:
       - go test ./... -coverprofile=coverage.out
 
   test:integration:
-    desc: 使用 Testcontainers 执行 PostgreSQL 集成测试
+    desc: 使用 Testcontainers 执行 PostgreSQL、Redis 与认证集成测试
     deps: [generate:check]
     cmds:
       - go test -tags=integration ./tests -count=1

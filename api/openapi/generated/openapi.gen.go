@@ -8,12 +8,20 @@ import (
 	"compress/flate"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gin-gonic/gin"
+	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
+)
+
+const (
+	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
 
 // Defines values for CheckStatusStatus.
@@ -49,6 +57,87 @@ func (e LivenessResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for SetUserStatusRequestStatus.
+const (
+	SetUserStatusRequestStatusActive   SetUserStatusRequestStatus = "active"
+	SetUserStatusRequestStatusDisabled SetUserStatusRequestStatus = "disabled"
+)
+
+// Valid indicates whether the value is a known member of the SetUserStatusRequestStatus enum.
+func (e SetUserStatusRequestStatus) Valid() bool {
+	switch e {
+	case SetUserStatusRequestStatusActive:
+		return true
+	case SetUserStatusRequestStatusDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TokenResponseTokenType.
+const (
+	Bearer TokenResponseTokenType = "Bearer"
+)
+
+// Valid indicates whether the value is a known member of the TokenResponseTokenType enum.
+func (e TokenResponseTokenType) Valid() bool {
+	switch e {
+	case Bearer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UserStatus.
+const (
+	UserStatusActive   UserStatus = "active"
+	UserStatusArchived UserStatus = "archived"
+	UserStatusDisabled UserStatus = "disabled"
+)
+
+// Valid indicates whether the value is a known member of the UserStatus enum.
+func (e UserStatus) Valid() bool {
+	switch e {
+	case UserStatusActive:
+		return true
+	case UserStatusArchived:
+		return true
+	case UserStatusDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListUsersParamsStatus.
+const (
+	Active   ListUsersParamsStatus = "active"
+	Archived ListUsersParamsStatus = "archived"
+	Disabled ListUsersParamsStatus = "disabled"
+)
+
+// Valid indicates whether the value is a known member of the ListUsersParamsStatus enum.
+func (e ListUsersParamsStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Archived:
+		return true
+	case Disabled:
+		return true
+	default:
+		return false
+	}
+}
+
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest struct {
+	NewPassword string `json:"new_password"`
+	OldPassword string `json:"old_password"`
+}
+
 // CheckStatus defines model for CheckStatus.
 type CheckStatus struct {
 	Status CheckStatusStatus `json:"status"`
@@ -56,6 +145,24 @@ type CheckStatus struct {
 
 // CheckStatusStatus defines model for CheckStatus.Status.
 type CheckStatusStatus string
+
+// CreateUserRequest defines model for CreateUserRequest.
+type CreateUserRequest struct {
+	AllowMultipleSessions *bool                `json:"allow_multiple_sessions,omitempty"`
+	AvatarUrl             *string              `json:"avatar_url,omitempty"`
+	DisplayName           *string              `json:"display_name,omitempty"`
+	Email                 *openapi_types.Email `json:"email,omitempty"`
+	IsSuperuser           *bool                `json:"is_superuser,omitempty"`
+	Password              string               `json:"password"`
+	Username              string               `json:"username"`
+}
+
+// Error defines model for Error.
+type Error struct {
+	Code      string  `json:"code"`
+	Message   string  `json:"message"`
+	RequestId *string `json:"request_id,omitempty"`
+}
 
 // LivenessResponse defines model for LivenessResponse.
 type LivenessResponse struct {
@@ -65,14 +172,163 @@ type LivenessResponse struct {
 // LivenessResponseStatus defines model for LivenessResponse.Status.
 type LivenessResponseStatus string
 
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	Password string `json:"password"`
+	Username string `json:"username"`
+}
+
+// Pagination defines model for Pagination.
+type Pagination struct {
+	Page  int   `json:"page"`
+	Size  int   `json:"size"`
+	Total int64 `json:"total"`
+}
+
+// PasswordPolicy defines model for PasswordPolicy.
+type PasswordPolicy struct {
+	MaxLength     int  `json:"max_length"`
+	MinLength     int  `json:"min_length"`
+	RejectCommon  bool `json:"reject_common"`
+	RequireDigit  bool `json:"require_digit"`
+	RequireLetter bool `json:"require_letter"`
+}
+
 // ReadinessResponse defines model for ReadinessResponse.
 type ReadinessResponse struct {
 	Checks map[string]CheckStatus `json:"checks"`
 	Ready  bool                   `json:"ready"`
 }
 
+// ResetPasswordRequest defines model for ResetPasswordRequest.
+type ResetPasswordRequest struct {
+	Password string `json:"password"`
+}
+
+// SetUserStatusRequest defines model for SetUserStatusRequest.
+type SetUserStatusRequest struct {
+	Status SetUserStatusRequestStatus `json:"status"`
+}
+
+// SetUserStatusRequestStatus defines model for SetUserStatusRequest.Status.
+type SetUserStatusRequestStatus string
+
+// TokenResponse defines model for TokenResponse.
+type TokenResponse struct {
+	AccessToken string                 `json:"access_token"`
+	ExpiresAt   time.Time              `json:"expires_at"`
+	SessionId   openapi_types.UUID     `json:"session_id"`
+	TokenType   TokenResponseTokenType `json:"token_type"`
+	User        User                   `json:"user"`
+}
+
+// TokenResponseTokenType defines model for TokenResponse.TokenType.
+type TokenResponseTokenType string
+
+// UpdateUserRequest defines model for UpdateUserRequest.
+type UpdateUserRequest struct {
+	AvatarUrl   *string              `json:"avatar_url,omitempty"`
+	DisplayName string               `json:"display_name"`
+	Email       *openapi_types.Email `json:"email,omitempty"`
+	Username    string               `json:"username"`
+}
+
+// User defines model for User.
+type User struct {
+	AllowMultipleSessions bool                 `json:"allow_multiple_sessions"`
+	AvatarUrl             *string              `json:"avatar_url,omitempty"`
+	CreatedAt             time.Time            `json:"created_at"`
+	DisplayName           string               `json:"display_name"`
+	Email                 *openapi_types.Email `json:"email,omitempty"`
+	Id                    openapi_types.UUID   `json:"id"`
+	IsSuperuser           bool                 `json:"is_superuser"`
+	Status                UserStatus           `json:"status"`
+	UpdatedAt             time.Time            `json:"updated_at"`
+	Username              string               `json:"username"`
+}
+
+// UserStatus defines model for User.Status.
+type UserStatus string
+
+// UserPage defines model for UserPage.
+type UserPage struct {
+	Items      []User     `json:"items"`
+	Pagination Pagination `json:"pagination"`
+}
+
+// ErrorResponse defines model for ErrorResponse.
+type ErrorResponse = Error
+
+// bearerAuthContextKey is the context key for bearerAuth security scheme
+type bearerAuthContextKey string
+
+// ListUsersParams defines parameters for ListUsers.
+type ListUsersParams struct {
+	Page     *int                   `form:"page,omitempty" json:"page,omitempty"`
+	Size     *int                   `form:"size,omitempty" json:"size,omitempty"`
+	Username *string                `form:"username,omitempty" json:"username,omitempty"`
+	Status   *ListUsersParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListUsersParamsStatus defines parameters for ListUsers.
+type ListUsersParamsStatus string
+
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = LoginRequest
+
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = ChangePasswordRequest
+
+// CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
+type CreateUserJSONRequestBody = CreateUserRequest
+
+// UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
+type UpdateUserJSONRequestBody = UpdateUserRequest
+
+// ResetUserPasswordJSONRequestBody defines body for ResetUserPassword for application/json ContentType.
+type ResetUserPasswordJSONRequestBody = ResetPasswordRequest
+
+// SetUserStatusJSONRequestBody defines body for SetUserStatus for application/json ContentType.
+type SetUserStatusJSONRequestBody = SetUserStatusRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+
+	// (POST /api/v1/auth/login)
+	Login(c *gin.Context)
+
+	// (POST /api/v1/auth/logout)
+	Logout(c *gin.Context)
+
+	// (GET /api/v1/auth/password-policy)
+	GetPasswordPolicy(c *gin.Context)
+
+	// (POST /api/v1/auth/refresh)
+	RefreshToken(c *gin.Context)
+
+	// (GET /api/v1/me)
+	GetCurrentUser(c *gin.Context)
+
+	// (PUT /api/v1/me/password)
+	ChangePassword(c *gin.Context)
+
+	// (GET /api/v1/users)
+	ListUsers(c *gin.Context, params ListUsersParams)
+
+	// (POST /api/v1/users)
+	CreateUser(c *gin.Context)
+
+	// (DELETE /api/v1/users/{userId})
+	ArchiveUser(c *gin.Context, userId openapi_types.UUID)
+
+	// (PATCH /api/v1/users/{userId})
+	UpdateUser(c *gin.Context, userId openapi_types.UUID)
+
+	// (PUT /api/v1/users/{userId}/password)
+	ResetUserPassword(c *gin.Context, userId openapi_types.UUID)
+
+	// (PUT /api/v1/users/{userId}/status)
+	SetUserStatus(c *gin.Context, userId openapi_types.UUID)
 
 	// (GET /livez)
 	GetLiveness(c *gin.Context)
@@ -89,6 +345,266 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(c *gin.Context)
+
+// Login operation middleware
+func (siw *ServerInterfaceWrapper) Login(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.Login(c)
+}
+
+// Logout operation middleware
+func (siw *ServerInterfaceWrapper) Logout(c *gin.Context) {
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.Logout(c)
+}
+
+// GetPasswordPolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetPasswordPolicy(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetPasswordPolicy(c)
+}
+
+// RefreshToken operation middleware
+func (siw *ServerInterfaceWrapper) RefreshToken(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RefreshToken(c)
+}
+
+// GetCurrentUser operation middleware
+func (siw *ServerInterfaceWrapper) GetCurrentUser(c *gin.Context) {
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetCurrentUser(c)
+}
+
+// ChangePassword operation middleware
+func (siw *ServerInterfaceWrapper) ChangePassword(c *gin.Context) {
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ChangePassword(c)
+}
+
+// ListUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListUsers(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUsersParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", c.Request.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter page: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "size" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "size", c.Request.URL.Query(), &params.Size, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter size: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "username" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "username", c.Request.URL.Query(), &params.Username, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter username: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", c.Request.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter status: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListUsers(c, params)
+}
+
+// CreateUser operation middleware
+func (siw *ServerInterfaceWrapper) CreateUser(c *gin.Context) {
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateUser(c)
+}
+
+// ArchiveUser operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveUser(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ArchiveUser(c, userId)
+}
+
+// UpdateUser operation middleware
+func (siw *ServerInterfaceWrapper) UpdateUser(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateUser(c, userId)
+}
+
+// ResetUserPassword operation middleware
+func (siw *ServerInterfaceWrapper) ResetUserPassword(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ResetUserPassword(c, userId)
+}
+
+// SetUserStatus operation middleware
+func (siw *ServerInterfaceWrapper) SetUserStatus(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.SetUserStatus(c, userId)
+}
 
 // GetLiveness operation middleware
 func (siw *ServerInterfaceWrapper) GetLiveness(c *gin.Context) {
@@ -143,6 +659,18 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 		ErrorHandler:       errorHandler,
 	}
 
+	router.POST(options.BaseURL+"/api/v1/auth/login", wrapper.Login)
+	router.POST(options.BaseURL+"/api/v1/auth/logout", wrapper.Logout)
+	router.GET(options.BaseURL+"/api/v1/auth/password-policy", wrapper.GetPasswordPolicy)
+	router.POST(options.BaseURL+"/api/v1/auth/refresh", wrapper.RefreshToken)
+	router.GET(options.BaseURL+"/api/v1/me", wrapper.GetCurrentUser)
+	router.PUT(options.BaseURL+"/api/v1/me/password", wrapper.ChangePassword)
+	router.GET(options.BaseURL+"/api/v1/users", wrapper.ListUsers)
+	router.POST(options.BaseURL+"/api/v1/users", wrapper.CreateUser)
+	router.DELETE(options.BaseURL+"/api/v1/users/:userId", wrapper.ArchiveUser)
+	router.PATCH(options.BaseURL+"/api/v1/users/:userId", wrapper.UpdateUser)
+	router.PUT(options.BaseURL+"/api/v1/users/:userId/password", wrapper.ResetUserPassword)
+	router.PUT(options.BaseURL+"/api/v1/users/:userId/status", wrapper.SetUserStatus)
 	router.GET(options.BaseURL+"/livez", wrapper.GetLiveness)
 	router.GET(options.BaseURL+"/readyz", wrapper.GetReadiness)
 }
@@ -152,13 +680,32 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"vJJBbxMxEIX/ymrgaGUXIi57CyChShyi9og4TOxpM+1mxthOUKj2v6PxJi1oq4KE6CnO+o3nvW/mHrzu",
-	"ogpJydDfQ/Zb2mE9ftiSv7sqWPb1b0waKRWmSffwnWS/g/4L6B04CPpd4KuDcowEPeSSWG5gHB0k+rbn",
-	"RMGkp+JHnW5uyRcYHXzmAwnlfEk5qmT6y87/0vKSMPDzPb2hqCcMgQur4LD+TfE60TX08Kp9xNmeWLa/",
-	"ghyfMJAIw9EeOd1sVAdCmWWYdO7sZp7FCliutb7FZbC7T/p+1VwNvGtW6wtwcKCUWQV66BZvFp3110iC",
-	"kaGH5aJbLMFBxLKtsdqBD/TDTjdU7McyowG4CPY4lfPAwLxO/Grl266r5FQKSS3FGAf2tbi9zWbhvG5/",
-	"Ajhbipo0UPaJY5nSrJN6yrnh3KCZNs3ooK3Qnk3wMP//GWG+ZE9k+EiRJJB4ptxgomaa+OjgXbd8WSur",
-	"JpzNHI3pXvCAPOBmmMiO488AAAD//w==",
+	"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",
+	"0jYtGV5iavesa/Pv3wAAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

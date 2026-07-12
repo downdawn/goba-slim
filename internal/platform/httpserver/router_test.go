@@ -167,7 +167,7 @@ func testOptions(healthService *health.Service) Options {
 	cfg.Server.ReadTimeout = time.Second
 	return Options{
 		Config:  cfg,
-		Handler: httpapi.NewHandler(healthService),
+		Handler: httpapi.NewHandler(httpapi.HandlerOptions{Health: healthService}),
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }

@@ -24,7 +24,7 @@ func TestServerShutsDownAfterContextCancellation(t *testing.T) {
 		Listener: listener,
 		Handler: NewRouter(Options{
 			Config:  config.Default(),
-			Handler: httpapi.NewHandler(health.NewService(nil)),
+			Handler: httpapi.NewHandler(httpapi.HandlerOptions{Health: health.NewService(nil)}),
 			Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 		}),
 		Config: config.ServerConfig{

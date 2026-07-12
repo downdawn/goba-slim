@@ -18,7 +18,7 @@ func InitializeDatabase(ctx context.Context, cfg config.Config) error {
 }
 
 func CreateAdmin(ctx context.Context, cfg config.Config, input user.CreateInput) (user.User, error) {
-	components, err := newCoreComponents(cfg)
+	components, err := newUserComponents(cfg)
 	if err != nil {
 		return user.User{}, fmt.Errorf("构造用户服务失败: %w", err)
 	}

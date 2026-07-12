@@ -20,6 +20,8 @@ cmd/goba
      -> internal/app
         -> internal/module
         -> internal/platform/database
+        -> internal/platform/redisstore
+        -> internal/modules/auth
         -> internal/modules/user
            -> internal/modules/user/postgres
               -> db/generated
@@ -27,7 +29,7 @@ cmd/goba
            -> api/openapi/generated
 ```
 
-`internal/platform` 承载配置、PostgreSQL、日志、HTTP Server 和健康检查等平台能力。用户业务模型和服务不依赖 pgx/sqlc；`internal/modules/user/postgres` 负责把生成查询类型转换为用户领域模型。`internal/transport/httpapi` 负责将 OpenAPI HTTP 请求映射到应用能力，并在边界统一处理错误响应。
+`internal/platform` 承载配置、PostgreSQL、Redis、日志、HTTP Server 和健康检查等平台能力。用户业务模型和服务不依赖 pgx/sqlc；认证服务不依赖 go-redis 或 Gin。基础设施适配器负责把具体类型转换到用途级接口。`internal/transport/httpapi` 负责 OpenAPI 映射、Bearer、Cookie、Origin 和统一错误响应。
 
 数据库在核心模块之前启动并检查 PostgreSQL 16+ 与 Schema 版本，关闭时按相反顺序释放。`serve` 不修改 Schema；只有显式 `goba db init` 可对空数据库执行 `db/schema` 中的初始化 SQL。用户写入通过模块内 Unit of Work 控制事务，事务对象不进入 Context。
 
@@ -39,6 +41,6 @@ cmd/goba
 
 ## 演进约束
 
-后续 Redis 和认证能力应按现有依赖方向加入。Auth 只能通过用户模块提供的窄接口读取身份和安全状态，不得直接访问用户表。只有出现跨模块协作、多实现或测试替换需求时才增加接口。
+Auth 只能通过用户模块提供的窄接口读取身份和安全状态，不得直接访问用户表。每次受保护请求同时验证 EdDSA JWT、Redis Session、用户状态和会话版本；Redis 故障时认证 fail closed。只有出现跨模块协作、多实现或测试替换需求时才增加接口。
 
 阶段规划见 [`roadmap.md`](roadmap.md)，开发规则见 [`development.md`](development.md)。
