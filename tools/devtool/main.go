@@ -40,13 +40,33 @@ func run(args []string, output io.Writer) error {
 		flags := flag.NewFlagSet("keygen", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		path := flags.String("output", defaultPrivateKeyPath, "私钥输出路径")
+		publicPath := flags.String("public-output", "", "可选的公钥输出路径")
 		if err := flags.Parse(args[1:]); err != nil {
 			return fmt.Errorf("解析 keygen 参数: %w", err)
 		}
-		if err := generatePrivateKey(*path); err != nil {
+		if err := generateKeyPair(*path, *publicPath); err != nil {
 			return err
 		}
 		_, err := fmt.Fprintf(output, "已生成 Ed25519 私钥: %s\n", filepath.ToSlash(*path))
+		if err == nil && *publicPath != "" {
+			_, err = fmt.Fprintf(output, "已生成 Ed25519 公钥: %s\n", filepath.ToSlash(*publicPath))
+		}
+		return err
+	case "public-key":
+		flags := flag.NewFlagSet("public-key", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		privatePath := flags.String("private", defaultPrivateKeyPath, "私钥文件路径")
+		publicPath := flags.String("output", "", "公钥输出路径")
+		if err := flags.Parse(args[1:]); err != nil {
+			return fmt.Errorf("解析 public-key 参数: %w", err)
+		}
+		if *publicPath == "" {
+			return errors.New("public-key 必须提供 --output")
+		}
+		if err := exportPublicKey(*privatePath, *publicPath); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(output, "已导出 Ed25519 公钥: %s\n", filepath.ToSlash(*publicPath))
 		return err
 	default:
 		return fmt.Errorf("未知命令 %q，用法: devtool <setup|keygen>", args[0])
@@ -63,7 +83,7 @@ func setup(root string, output io.Writer) error {
 	keyPath := filepath.Join(root, filepath.FromSlash(defaultPrivateKeyPath))
 	keyCreated := false
 	if _, err := os.Stat(keyPath); errors.Is(err, os.ErrNotExist) {
-		if err := generatePrivateKey(keyPath); err != nil {
+		if err := generateKeyPair(keyPath, ""); err != nil {
 			return err
 		}
 		keyCreated = true
@@ -124,7 +144,11 @@ GOBA_AUTH_PRIVATE_KEY_FILE=%s
 }
 
 func generatePrivateKey(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	return generateKeyPair(path, "")
+}
+
+func generateKeyPair(privatePath, publicPath string) error {
+	if err := os.MkdirAll(filepath.Dir(privatePath), 0o700); err != nil {
 		return fmt.Errorf("创建私钥目录: %w", err)
 	}
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -135,13 +159,69 @@ func generatePrivateKey(path string) error {
 	if err != nil {
 		return fmt.Errorf("编码 Ed25519 私钥: %w", err)
 	}
-	block := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded})
-	created, err := writeExclusive(path, block, 0o600)
+	privateBlock := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded})
+	created, err := writeExclusive(privatePath, privateBlock, 0o600)
 	if err != nil {
 		return fmt.Errorf("创建私钥文件: %w", err)
 	}
 	if !created {
-		return fmt.Errorf("私钥文件已存在，拒绝覆盖: %s", filepath.ToSlash(path))
+		return fmt.Errorf("私钥文件已存在，拒绝覆盖: %s", filepath.ToSlash(privatePath))
+	}
+	if publicPath == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(publicPath), 0o750); err != nil {
+		_ = os.Remove(privatePath)
+		return fmt.Errorf("创建公钥目录: %w", err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(privateKey.Public())
+	if err != nil {
+		_ = os.Remove(privatePath)
+		return fmt.Errorf("编码 Ed25519 公钥: %w", err)
+	}
+	publicBlock := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER})
+	publicCreated, err := writeExclusive(publicPath, publicBlock, 0o644)
+	if err != nil || !publicCreated {
+		_ = os.Remove(privatePath)
+		if err != nil {
+			return fmt.Errorf("创建公钥文件: %w", err)
+		}
+		return fmt.Errorf("公钥文件已存在，拒绝覆盖: %s", filepath.ToSlash(publicPath))
+	}
+	return nil
+}
+
+func exportPublicKey(privatePath, publicPath string) error {
+	// #nosec G304 -- 私钥路径由开发者通过显式命令参数提供。
+	content, err := os.ReadFile(privatePath)
+	if err != nil {
+		return fmt.Errorf("读取 Ed25519 私钥: %w", err)
+	}
+	block, rest := pem.Decode(content)
+	if block == nil || len(rest) != 0 {
+		return errors.New("私钥必须是 Ed25519 PKCS#8 PEM")
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return errors.New("私钥必须是 Ed25519 PKCS#8 PEM")
+	}
+	privateKey, ok := parsed.(ed25519.PrivateKey)
+	if !ok {
+		return errors.New("私钥不是 Ed25519 私钥")
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(privateKey.Public())
+	if err != nil {
+		return fmt.Errorf("编码 Ed25519 公钥: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(publicPath), 0o750); err != nil {
+		return fmt.Errorf("创建公钥目录: %w", err)
+	}
+	created, err := writeExclusive(publicPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER}), 0o644)
+	if err != nil {
+		return fmt.Errorf("创建公钥文件: %w", err)
+	}
+	if !created {
+		return fmt.Errorf("公钥文件已存在，拒绝覆盖: %s", filepath.ToSlash(publicPath))
 	}
 	return nil
 }

@@ -55,6 +55,8 @@ task check
 task dev:down
 ```
 
+OpenAPI 文档按 `Health`、`Authentication`、`Profile` 和 `Users` 分组。新增接口时必须为 operation 设置现有或职责明确的新 tag，不能让接口回落到 `default`。
+
 `task run`、`task db:init` 会显式加载仓库根目录的 `.env`。直接调用 CLI 时需要同时传入本地配置参数：
 
 ```bash

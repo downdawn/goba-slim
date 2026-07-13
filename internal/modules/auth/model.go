@@ -16,6 +16,7 @@ var (
 	ErrInvalidToken       = errors.New("token 无效或已过期")
 	ErrRefreshReuse       = errors.New("Refresh Token 已被重复使用")
 	ErrRateLimited        = errors.New("登录尝试过于频繁")
+	ErrUnavailable        = errors.New("认证依赖不可用")
 )
 
 type Session struct {

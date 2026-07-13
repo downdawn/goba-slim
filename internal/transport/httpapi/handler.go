@@ -360,6 +360,8 @@ func authHTTPError(err error) error {
 		return apperror.New("USER_DISABLED", "error.user_disabled", "用户已停用", http.StatusForbidden, err)
 	case errors.Is(err, auth.ErrRateLimited):
 		return apperror.New("LOGIN_RATE_LIMITED", "error.login_rate_limited", "登录尝试过于频繁", http.StatusTooManyRequests, err)
+	case errors.Is(err, auth.ErrUnavailable):
+		return apperror.New("AUTHENTICATION_UNAVAILABLE", "error.authentication_unavailable", "认证服务暂时不可用", http.StatusServiceUnavailable, err)
 	default:
 		return err
 	}

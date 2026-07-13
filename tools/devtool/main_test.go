@@ -32,6 +32,52 @@ func TestGeneratePrivateKeyCreatesPKCS8Ed25519AndRefusesOverwrite(t *testing.T) 
 	require.Equal(t, content, unchanged)
 }
 
+func TestGenerateKeyPairCreatesMatchingPKIXPublicKey(t *testing.T) {
+	directory := t.TempDir()
+	privatePath := filepath.Join(directory, "auth.pem")
+	publicPath := filepath.Join(directory, "auth.pub.pem")
+	require.NoError(t, generateKeyPair(privatePath, publicPath))
+
+	privateBlock, _ := pem.Decode(readTestFile(t, privatePath))
+	parsedPrivate, err := x509.ParsePKCS8PrivateKey(privateBlock.Bytes)
+	require.NoError(t, err)
+	publicBlock, rest := pem.Decode(readTestFile(t, publicPath))
+	require.Empty(t, rest)
+	parsedPublic, err := x509.ParsePKIXPublicKey(publicBlock.Bytes)
+	require.NoError(t, err)
+	require.Equal(t, parsedPrivate.(ed25519.PrivateKey).Public(), parsedPublic)
+}
+
+func TestExportPublicKeyCreatesMatchingKeyAndRefusesOverwrite(t *testing.T) {
+	directory := t.TempDir()
+	privatePath := filepath.Join(directory, "auth.pem")
+	publicPath := filepath.Join(directory, "auth.pub.pem")
+	require.NoError(t, generatePrivateKey(privatePath))
+	require.NoError(t, exportPublicKey(privatePath, publicPath))
+	require.ErrorContains(t, exportPublicKey(privatePath, publicPath), "拒绝覆盖")
+
+	privateBlock, _ := pem.Decode(readTestFile(t, privatePath))
+	parsedPrivate, err := x509.ParsePKCS8PrivateKey(privateBlock.Bytes)
+	require.NoError(t, err)
+	publicBlock, _ := pem.Decode(readTestFile(t, publicPath))
+	parsedPublic, err := x509.ParsePKIXPublicKey(publicBlock.Bytes)
+	require.NoError(t, err)
+	require.Equal(t, parsedPrivate.(ed25519.PrivateKey).Public(), parsedPublic)
+}
+
+func TestGenerateKeyPairRemovesPrivateKeyWhenPublicKeyExists(t *testing.T) {
+	directory := t.TempDir()
+	privatePath := filepath.Join(directory, "auth.pem")
+	publicPath := filepath.Join(directory, "auth.pub.pem")
+	require.NoError(t, os.WriteFile(publicPath, []byte("existing-public-key"), 0o600))
+
+	err := generateKeyPair(privatePath, publicPath)
+
+	require.ErrorContains(t, err, "拒绝覆盖")
+	require.NoFileExists(t, privatePath)
+	require.Equal(t, []byte("existing-public-key"), readTestFile(t, publicPath))
+}
+
 func TestSetupCreatesMissingFilesAndPreservesExistingFiles(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "configs"), 0o700))

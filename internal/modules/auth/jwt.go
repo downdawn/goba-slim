@@ -20,7 +20,7 @@ type Claims struct {
 
 type Tokens struct {
 	privateKey ed25519.PrivateKey
-	publicKey  ed25519.PublicKey
+	publicKeys map[string]ed25519.PublicKey
 	issuer     string
 	audience   string
 	keyID      string
@@ -40,7 +40,34 @@ func NewTokens(cfg config.AuthConfig) (*Tokens, error) {
 	if !ok {
 		return nil, fmt.Errorf("auth.private_key 不是 Ed25519 私钥")
 	}
-	return &Tokens{privateKey: privateKey, publicKey: privateKey.Public().(ed25519.PublicKey), issuer: cfg.Issuer, audience: cfg.Audience, keyID: cfg.KeyID, ttl: cfg.AccessTokenTTL}, nil
+	publicKeys := map[string]ed25519.PublicKey{cfg.KeyID: privateKey.Public().(ed25519.PublicKey)}
+	for keyID, encoded := range cfg.VerificationKeys {
+		if keyID == cfg.KeyID {
+			return nil, fmt.Errorf("auth.verification_key_files 不能包含当前 key_id")
+		}
+		publicKey, err := parsePublicKey(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("解析验证公钥 %s 失败: %w", keyID, err)
+		}
+		publicKeys[keyID] = publicKey
+	}
+	return &Tokens{privateKey: privateKey, publicKeys: publicKeys, issuer: cfg.Issuer, audience: cfg.Audience, keyID: cfg.KeyID, ttl: cfg.AccessTokenTTL}, nil
+}
+
+func parsePublicKey(encoded string) (ed25519.PublicKey, error) {
+	block, rest := pem.Decode([]byte(encoded))
+	if block == nil || len(rest) != 0 {
+		return nil, fmt.Errorf("必须是 Ed25519 PKIX PEM")
+	}
+	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("必须是 Ed25519 PKIX PEM")
+	}
+	publicKey, ok := parsed.(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("不是 Ed25519 公钥")
+	}
+	return publicKey, nil
 }
 
 func (t *Tokens) Sign(userID, sessionID uuid.UUID, version int64, now time.Time) (string, time.Time, error) {
@@ -60,10 +87,18 @@ func (t *Tokens) Sign(userID, sessionID uuid.UUID, version int64, now time.Time)
 
 func (t *Tokens) Verify(encoded string, now time.Time) (Claims, error) {
 	parsed, err := jwt.ParseWithClaims(encoded, &Claims{}, func(token *jwt.Token) (any, error) {
-		if token.Method.Alg() != jwt.SigningMethodEdDSA.Alg() || token.Header["kid"] != t.keyID {
+		if token.Method.Alg() != jwt.SigningMethodEdDSA.Alg() {
 			return nil, ErrInvalidToken
 		}
-		return t.publicKey, nil
+		keyID, ok := token.Header["kid"].(string)
+		if !ok || keyID == "" {
+			return nil, ErrInvalidToken
+		}
+		publicKey, ok := t.publicKeys[keyID]
+		if !ok {
+			return nil, ErrInvalidToken
+		}
+		return publicKey, nil
 	}, jwt.WithIssuer(t.issuer), jwt.WithAudience(t.audience), jwt.WithTimeFunc(func() time.Time { return now }), jwt.WithValidMethods([]string{jwt.SigningMethodEdDSA.Alg()}))
 	if err != nil || !parsed.Valid {
 		return Claims{}, ErrInvalidToken

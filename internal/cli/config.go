@@ -122,20 +122,21 @@ type redactedCORSConfig struct {
 	AllowCredentials bool     `json:"allow_credentials"`
 }
 type redactedAuthConfig struct {
-	Issuer          string        `json:"issuer"`
-	Audience        string        `json:"audience"`
-	AccessTokenTTL  time.Duration `json:"access_token_ttl"`
-	RefreshTokenTTL time.Duration `json:"refresh_token_ttl"`
-	PrivateKey      string        `json:"private_key"`
-	PrivateKeyFile  string        `json:"private_key_file"`
-	KeyID           string        `json:"key_id"`
-	RefreshCookie   string        `json:"refresh_cookie"`
-	CookieDomain    string        `json:"cookie_domain"`
-	CookiePath      string        `json:"cookie_path"`
-	CookieSecure    bool          `json:"cookie_secure"`
-	CookieSameSite  string        `json:"cookie_same_site"`
-	LoginAttempts   int           `json:"login_attempts"`
-	LoginWindow     time.Duration `json:"login_window"`
+	Issuer               string            `json:"issuer"`
+	Audience             string            `json:"audience"`
+	AccessTokenTTL       time.Duration     `json:"access_token_ttl"`
+	RefreshTokenTTL      time.Duration     `json:"refresh_token_ttl"`
+	PrivateKey           string            `json:"private_key"`
+	PrivateKeyFile       string            `json:"private_key_file"`
+	KeyID                string            `json:"key_id"`
+	VerificationKeyFiles map[string]string `json:"verification_key_files"`
+	RefreshCookie        string            `json:"refresh_cookie"`
+	CookieDomain         string            `json:"cookie_domain"`
+	CookiePath           string            `json:"cookie_path"`
+	CookieSecure         bool              `json:"cookie_secure"`
+	CookieSameSite       string            `json:"cookie_same_site"`
+	LoginAttempts        int               `json:"login_attempts"`
+	LoginWindow          time.Duration     `json:"login_window"`
 }
 type redactedLogConfig struct {
 	Level  string `json:"level"`
@@ -153,7 +154,7 @@ func newRedactedConfig(cfg config.Config) redactedConfig {
 		Database: redactedDatabaseConfig{Host: cfg.Database.Host, Port: cfg.Database.Port, Name: cfg.Database.Name, User: cfg.Database.User, Password: cfg.Database.Password.String(), PasswordFile: cfg.Database.PasswordFile, SSLMode: cfg.Database.SSLMode, MinConnections: cfg.Database.MinConnections, MaxConnections: cfg.Database.MaxConnections, ConnectTimeout: cfg.Database.ConnectTimeout, HealthTimeout: cfg.Database.HealthTimeout},
 		Redis:    redactedRedisConfig{Host: cfg.Redis.Host, Port: cfg.Redis.Port, Database: cfg.Redis.Database, Username: cfg.Redis.Username, Password: cfg.Redis.Password.String(), PasswordFile: cfg.Redis.PasswordFile, TLS: cfg.Redis.TLS, PoolSize: cfg.Redis.PoolSize, MinIdleConns: cfg.Redis.MinIdleConns, ConnectTimeout: cfg.Redis.ConnectTimeout, ReadTimeout: cfg.Redis.ReadTimeout, WriteTimeout: cfg.Redis.WriteTimeout, HealthTimeout: cfg.Redis.HealthTimeout},
 		CORS:     redactedCORSConfig{AllowOrigins: cfg.CORS.AllowOrigins, AllowMethods: cfg.CORS.AllowMethods, AllowHeaders: cfg.CORS.AllowHeaders, AllowCredentials: cfg.CORS.AllowCredentials},
-		Auth:     redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile, KeyID: cfg.Auth.KeyID, RefreshCookie: cfg.Auth.RefreshCookie, CookieDomain: cfg.Auth.CookieDomain, CookiePath: cfg.Auth.CookiePath, CookieSecure: cfg.Auth.CookieSecure, CookieSameSite: cfg.Auth.CookieSameSite, LoginAttempts: cfg.Auth.LoginAttempts, LoginWindow: cfg.Auth.LoginWindow},
+		Auth:     redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile, KeyID: cfg.Auth.KeyID, VerificationKeyFiles: cfg.Auth.VerificationKeyFiles, RefreshCookie: cfg.Auth.RefreshCookie, CookieDomain: cfg.Auth.CookieDomain, CookiePath: cfg.Auth.CookiePath, CookieSecure: cfg.Auth.CookieSecure, CookieSameSite: cfg.Auth.CookieSameSite, LoginAttempts: cfg.Auth.LoginAttempts, LoginWindow: cfg.Auth.LoginWindow},
 		Log:      redactedLogConfig{Level: cfg.Log.Level, Format: cfg.Log.Format},
 		Modules:  redactedModuleConfig{File: cfg.Modules.File, SystemConfig: cfg.Modules.SystemConfig},
 	}

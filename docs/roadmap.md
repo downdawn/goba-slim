@@ -18,11 +18,9 @@ Phase 2 原定不开放用户 HTTP 接口；相关路由已在 Phase 3 认证边
 
 ## Phase 3：Redis 与认证会话
 
-**状态：核心功能已完成，剩余公钥轮换与补充验收。**
+**状态：已完成。**
 
-已建立 Redis 用途级接口、登录、短期 EdDSA Access Token、可撤销 Refresh Token 和会话生命周期。现有集成验收覆盖登录、当前用户、用户列表、刷新、Token 重用撤销、登出和并发刷新。
-
-当前单密钥签发与 `kid` 校验已可用，但旧公钥验证集合和密钥轮换尚未实现；改密、停用即时失效与 Redis 故障 fail closed 还需补充独立集成测试后，Phase 3 才能标记为完全完成。
+已建立 Redis 用途级接口、登录、短期 EdDSA Access Token、可撤销 Refresh Token、会话生命周期和按 `kid` 的公钥轮换。集成验收覆盖登录、当前用户、用户列表、刷新、Token 重用撤销、登出、并发刷新、改密即时失效、停用即时失效及 Redis 故障 fail closed。
 
 ## Phase 4：可选文件模块
 

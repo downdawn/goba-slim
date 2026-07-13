@@ -39,6 +39,8 @@ cmd/goba
 
 生产环境必须关闭 debug 和 API 文档。TLS 由部署侧的 Nginx、Ingress 或 API Gateway 终止，应用镜像以非 root 用户运行。
 
+JWT 使用当前 Ed25519 私钥签发，并按 `kid` 从当前公钥和旧公钥集合中选择验证密钥。轮换期间只保留旧公钥，不继续加载旧私钥；每次受保护请求仍校验 Redis Session，因此改密、停用和主动撤销可以立即失效，不依赖 Access Token 自然过期。
+
 ## 演进约束
 
 Auth 只能通过用户模块提供的窄接口读取身份和安全状态，不得直接访问用户表。每次受保护请求同时验证 EdDSA JWT、Redis Session、用户状态和会话版本；Redis 故障时认证 fail closed。只有出现跨模块协作、多实现或测试替换需求时才增加接口。

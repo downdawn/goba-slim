@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/downdawn/goba-slim/api/openapi/generated"
 	"github.com/downdawn/goba-slim/internal/platform/config"
 	"github.com/downdawn/goba-slim/internal/platform/health"
 	"github.com/downdawn/goba-slim/internal/transport/httpapi"
@@ -49,6 +50,24 @@ func TestRouterServesSwaggerUIInDevelopment(t *testing.T) {
 	favicon := httptest.NewRecorder()
 	router.ServeHTTP(favicon, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
 	require.Equal(t, http.StatusNoContent, favicon.Code)
+}
+
+func TestOpenAPIOperationsUseDeclaredTags(t *testing.T) {
+	specification, err := generated.GetSpec()
+	require.NoError(t, err)
+	declared := make(map[string]struct{}, len(specification.Tags))
+	for _, tag := range specification.Tags {
+		declared[tag.Name] = struct{}{}
+	}
+	require.NotEmpty(t, declared)
+
+	for path, item := range specification.Paths.Map() {
+		for method, operation := range item.Operations() {
+			require.Len(t, operation.Tags, 1, "%s %s 必须且只能声明一个 OpenAPI tag", method, path)
+			_, ok := declared[operation.Tags[0]]
+			require.True(t, ok, "%s %s 使用了未声明的 OpenAPI tag", method, path)
+		}
+	}
 }
 
 func TestRouterDoesNotServeDocumentationInProduction(t *testing.T) {

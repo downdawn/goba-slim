@@ -2,9 +2,19 @@ openapi: 3.0.3
 info:
   title: GoBA Slim API
   version: 0.1.0
+tags:
+  - name: Health
+    description: 服务存活与依赖就绪检查
+  - name: Authentication
+    description: 登录、刷新、登出与密码策略
+  - name: Profile
+    description: 当前用户资料与密码
+  - name: Users
+    description: 超级管理员用户管理
 paths:
   /api/v1/auth/login:
     post:
+      tags: [Authentication]
       operationId: login
       requestBody:
         required: true
@@ -25,6 +35,7 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
   /api/v1/auth/refresh:
     post:
+      tags: [Authentication]
       operationId: refreshToken
       responses:
         '200':
@@ -37,6 +48,7 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
   /api/v1/auth/logout:
     post:
+      tags: [Authentication]
       operationId: logout
       security:
         - bearerAuth: []
@@ -47,6 +59,7 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
   /api/v1/auth/password-policy:
     get:
+      tags: [Authentication]
       operationId: getPasswordPolicy
       responses:
         '200':
@@ -57,6 +70,7 @@ paths:
                 $ref: '#/components/schemas/PasswordPolicy'
   /api/v1/me:
     get:
+      tags: [Profile]
       operationId: getCurrentUser
       security:
         - bearerAuth: []
@@ -71,6 +85,7 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
   /api/v1/me/password:
     put:
+      tags: [Profile]
       operationId: changePassword
       security:
         - bearerAuth: []
@@ -89,6 +104,7 @@ paths:
           $ref: '#/components/responses/ErrorResponse'
   /api/v1/users:
     get:
+      tags: [Users]
       operationId: listUsers
       security:
         - bearerAuth: []
@@ -105,6 +121,7 @@ paths:
               schema: {$ref: '#/components/schemas/UserPage'}
         '403': {$ref: '#/components/responses/ErrorResponse'}
     post:
+      tags: [Users]
       operationId: createUser
       security:
         - bearerAuth: []
@@ -124,6 +141,7 @@ paths:
     parameters:
       - {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
     patch:
+      tags: [Users]
       operationId: updateUser
       security:
         - bearerAuth: []
@@ -139,6 +157,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/User'}
     delete:
+      tags: [Users]
       operationId: archiveUser
       security:
         - bearerAuth: []
@@ -146,6 +165,7 @@ paths:
         '204': {description: User archived}
   /api/v1/users/{userId}/status:
     put:
+      tags: [Users]
       operationId: setUserStatus
       security:
         - bearerAuth: []
@@ -164,6 +184,7 @@ paths:
               schema: {$ref: '#/components/schemas/User'}
   /api/v1/users/{userId}/password:
     put:
+      tags: [Users]
       operationId: resetUserPassword
       security:
         - bearerAuth: []
@@ -178,6 +199,7 @@ paths:
         '204': {description: Password reset}
   /livez:
     get:
+      tags: [Health]
       operationId: getLiveness
       responses:
         '200':
@@ -188,6 +210,7 @@ paths:
                 $ref: '#/components/schemas/LivenessResponse'
   /readyz:
     get:
+      tags: [Health]
       operationId: getReadiness
       responses:
         '200':

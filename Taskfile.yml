@@ -86,6 +86,11 @@ tasks:
     cmds:
       - go run ./tools/devtool keygen {{.CLI_ARGS}}
 
+  auth:public-key:
+    desc: 从现有 Ed25519 私钥导出不覆盖的 PKIX 公钥
+    cmds:
+      - go run ./tools/devtool public-key {{.CLI_ARGS}}
+
   run:
     desc: 在宿主机使用本地开发配置启动 API
     cmds:

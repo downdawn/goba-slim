@@ -82,20 +82,22 @@ type CORSConfig struct {
 }
 
 type AuthConfig struct {
-	Issuer          string        `koanf:"issuer"`
-	Audience        string        `koanf:"audience"`
-	AccessTokenTTL  time.Duration `koanf:"access_token_ttl"`
-	RefreshTokenTTL time.Duration `koanf:"refresh_token_ttl"`
-	PrivateKey      Secret        `koanf:"private_key"`
-	PrivateKeyFile  string        `koanf:"private_key_file"`
-	KeyID           string        `koanf:"key_id"`
-	RefreshCookie   string        `koanf:"refresh_cookie"`
-	CookieDomain    string        `koanf:"cookie_domain"`
-	CookiePath      string        `koanf:"cookie_path"`
-	CookieSecure    bool          `koanf:"cookie_secure"`
-	CookieSameSite  string        `koanf:"cookie_same_site"`
-	LoginAttempts   int           `koanf:"login_attempts"`
-	LoginWindow     time.Duration `koanf:"login_window"`
+	Issuer               string            `koanf:"issuer"`
+	Audience             string            `koanf:"audience"`
+	AccessTokenTTL       time.Duration     `koanf:"access_token_ttl"`
+	RefreshTokenTTL      time.Duration     `koanf:"refresh_token_ttl"`
+	PrivateKey           Secret            `koanf:"private_key"`
+	PrivateKeyFile       string            `koanf:"private_key_file"`
+	KeyID                string            `koanf:"key_id"`
+	VerificationKeyFiles map[string]string `koanf:"verification_key_files"`
+	VerificationKeys     map[string]string `koanf:"-"`
+	RefreshCookie        string            `koanf:"refresh_cookie"`
+	CookieDomain         string            `koanf:"cookie_domain"`
+	CookiePath           string            `koanf:"cookie_path"`
+	CookieSecure         bool              `koanf:"cookie_secure"`
+	CookieSameSite       string            `koanf:"cookie_same_site"`
+	LoginAttempts        int               `koanf:"login_attempts"`
+	LoginWindow          time.Duration     `koanf:"login_window"`
 }
 
 type LogConfig struct {
@@ -279,6 +281,19 @@ func applyMap(cfg *Config, data map[string]any) {
 			*target = toStrings(values)
 		}
 	}
+	setStringMap := func(m map[string]any, key string, target *map[string]string) {
+		values, ok := m[key].(map[string]any)
+		if !ok {
+			return
+		}
+		result := make(map[string]string, len(values))
+		for itemKey, value := range values {
+			if stringValue, ok := value.(string); ok {
+				result[itemKey] = stringValue
+			}
+		}
+		*target = result
+	}
 
 	if m := section("app"); m != nil {
 		setString(m, "environment", &cfg.App.Environment)
@@ -349,6 +364,7 @@ func applyMap(cfg *Config, data map[string]any) {
 		setDuration(m, "access_token_ttl", &cfg.Auth.AccessTokenTTL)
 		setDuration(m, "refresh_token_ttl", &cfg.Auth.RefreshTokenTTL)
 		setString(m, "key_id", &cfg.Auth.KeyID)
+		setStringMap(m, "verification_key_files", &cfg.Auth.VerificationKeyFiles)
 		setString(m, "refresh_cookie", &cfg.Auth.RefreshCookie)
 		setString(m, "cookie_domain", &cfg.Auth.CookieDomain)
 		setString(m, "cookie_path", &cfg.Auth.CookiePath)
@@ -515,6 +531,13 @@ func applyEnvironment(cfg *Config, values []string, prefix string) error {
 	setString("AUTH_PRIVATE_KEY", (*string)(&cfg.Auth.PrivateKey))
 	setString("AUTH_PRIVATE_KEY_FILE", &cfg.Auth.PrivateKeyFile)
 	setString("AUTH_KEY_ID", &cfg.Auth.KeyID)
+	if value, ok := env[prefix+"AUTH_VERIFICATION_KEY_FILES"]; ok {
+		parsed, err := parseKeyFileEntries(value)
+		if err != nil {
+			return invalidEnvironmentValue(prefix + "AUTH_VERIFICATION_KEY_FILES")
+		}
+		cfg.Auth.VerificationKeyFiles = parsed
+	}
 	setString("AUTH_REFRESH_COOKIE", &cfg.Auth.RefreshCookie)
 	setString("AUTH_COOKIE_DOMAIN", &cfg.Auth.CookieDomain)
 	setString("AUTH_COOKIE_PATH", &cfg.Auth.CookiePath)
@@ -554,6 +577,25 @@ func splitStrings(value string) []string {
 	return result
 }
 
+func parseKeyFileEntries(value string) (map[string]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	result := make(map[string]string)
+	for _, entry := range strings.Split(value, ",") {
+		keyID, path, ok := strings.Cut(strings.TrimSpace(entry), "=")
+		keyID, path = strings.TrimSpace(keyID), strings.TrimSpace(path)
+		if !ok || keyID == "" || path == "" {
+			return nil, fmt.Errorf("公钥文件映射格式无效")
+		}
+		if _, exists := result[keyID]; exists {
+			return nil, fmt.Errorf("公钥 key_id 重复")
+		}
+		result[keyID] = path
+	}
+	return result, nil
+}
+
 func resolveSecrets(cfg *Config, prefix string) error {
 	if err := resolveSecret(&cfg.Database.Password, &cfg.Database.PasswordFile, prefix+"DATABASE_PASSWORD"); err != nil {
 		return err
@@ -565,14 +607,26 @@ func resolveSecrets(cfg *Config, prefix string) error {
 	if cfg.Auth.PrivateKey != "" && cfg.Auth.PrivateKeyFile != "" {
 		return fmt.Errorf("%sAUTH_PRIVATE_KEY 与 %sAUTH_PRIVATE_KEY_FILE 只能配置一种来源", prefix, prefix)
 	}
-	if cfg.Auth.PrivateKeyFile == "" {
+	if cfg.Auth.PrivateKeyFile != "" {
+		// #nosec G304 -- 文件路径由部署方通过显式 Secret 配置提供。
+		content, err := os.ReadFile(cfg.Auth.PrivateKeyFile)
+		if err != nil {
+			return fmt.Errorf("读取 %sAUTH_PRIVATE_KEY_FILE 失败: %w", prefix, err)
+		}
+		cfg.Auth.PrivateKey = NewSecret(strings.TrimRight(string(content), "\r\n"))
+	}
+	if len(cfg.Auth.VerificationKeyFiles) == 0 {
 		return nil
 	}
-	content, err := os.ReadFile(cfg.Auth.PrivateKeyFile)
-	if err != nil {
-		return fmt.Errorf("读取 %sAUTH_PRIVATE_KEY_FILE 失败: %w", prefix, err)
+	cfg.Auth.VerificationKeys = make(map[string]string, len(cfg.Auth.VerificationKeyFiles))
+	for keyID, path := range cfg.Auth.VerificationKeyFiles {
+		// #nosec G304 -- 公钥路径由部署方通过显式轮换配置提供。
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("读取 AUTH_VERIFICATION_KEY_FILES[%s] 失败: %w", keyID, err)
+		}
+		cfg.Auth.VerificationKeys[keyID] = strings.TrimRight(string(content), "\r\n")
 	}
-	cfg.Auth.PrivateKey = NewSecret(strings.TrimRight(string(content), "\r\n"))
 	return nil
 }
 
@@ -648,6 +702,14 @@ func (c Config) Validate() error {
 	}
 	if c.Auth.Issuer == "" || c.Auth.Audience == "" || c.Auth.KeyID == "" {
 		return fmt.Errorf("auth issuer、audience 和 key_id 不能为空")
+	}
+	if _, exists := c.Auth.VerificationKeyFiles[c.Auth.KeyID]; exists {
+		return fmt.Errorf("auth.verification_key_files 不能包含当前 key_id")
+	}
+	for keyID, path := range c.Auth.VerificationKeyFiles {
+		if strings.TrimSpace(keyID) == "" || strings.TrimSpace(path) == "" {
+			return fmt.Errorf("auth.verification_key_files 包含无效映射")
+		}
 	}
 	if c.Auth.RefreshCookie == "" || c.Auth.CookiePath == "" || (c.Auth.CookieSameSite != "strict" && c.Auth.CookieSameSite != "lax" && c.Auth.CookieSameSite != "none") {
 		return fmt.Errorf("auth Cookie 配置无效")

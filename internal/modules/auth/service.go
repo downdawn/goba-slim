@@ -37,7 +37,7 @@ func (s *Service) Login(ctx context.Context, username, password, clientKey strin
 	normalized := strings.ToLower(strings.TrimSpace(username))
 	allowed, err := s.limiter.Allow(ctx, normalized+":"+clientKey, s.maxAttempts, s.loginWindow)
 	if err != nil {
-		return TokenPair{}, fmt.Errorf("登录限流不可用: %w", err)
+		return TokenPair{}, fmt.Errorf("%w: 登录限流: %w", ErrUnavailable, err)
 	}
 	if !allowed {
 		return TokenPair{}, ErrRateLimited
@@ -60,7 +60,7 @@ func (s *Service) Login(ctx context.Context, username, password, clientKey strin
 	}
 	session := Session{ID: sessionID, FamilyID: familyID, UserID: account.ID, UserVersion: account.SessionVersion, CurrentDigest: digest, CreatedAt: now, ExpiresAt: now.Add(s.refreshTTL)}
 	if err := s.sessions.Create(ctx, session, s.refreshTTL, account.AllowMultipleSessions); err != nil {
-		return TokenPair{}, fmt.Errorf("创建认证会话: %w", err)
+		return TokenPair{}, fmt.Errorf("%w: 创建认证会话: %w", ErrUnavailable, err)
 	}
 	access, expiresAt, err := s.tokens.Sign(account.ID, sessionID, account.SessionVersion, now)
 	if err != nil {
@@ -82,6 +82,9 @@ func (s *Service) Refresh(ctx context.Context, refresh string) (TokenPair, error
 	now := s.clock.Now().UTC()
 	session, err := s.sessions.Rotate(ctx, digestToken(refresh), newDigest, now, s.refreshTTL)
 	if err != nil {
+		if !errors.Is(err, ErrInvalidToken) && !errors.Is(err, ErrRefreshReuse) {
+			return TokenPair{}, fmt.Errorf("%w: 轮换认证会话: %w", ErrUnavailable, err)
+		}
 		return TokenPair{}, err
 	}
 	account, err := s.users.GetByID(ctx, session.UserID)
@@ -106,7 +109,13 @@ func (s *Service) Authenticate(ctx context.Context, access string) (Identity, er
 		return Identity{}, ErrInvalidToken
 	}
 	session, err := s.sessions.Get(ctx, claims.SessionID)
-	if err != nil || session.UserID != userID || session.UserVersion != claims.Version {
+	if err != nil {
+		if errors.Is(err, ErrInvalidToken) {
+			return Identity{}, ErrInvalidToken
+		}
+		return Identity{}, fmt.Errorf("%w: 读取认证会话: %w", ErrUnavailable, err)
+	}
+	if session.UserID != userID || session.UserVersion != claims.Version {
 		return Identity{}, ErrInvalidToken
 	}
 	account, err := s.users.GetByID(ctx, userID)
@@ -117,11 +126,17 @@ func (s *Service) Authenticate(ctx context.Context, access string) (Identity, er
 }
 
 func (s *Service) Logout(ctx context.Context, sessionID uuid.UUID) error {
-	return s.sessions.Revoke(ctx, sessionID)
+	if err := s.sessions.Revoke(ctx, sessionID); err != nil {
+		return fmt.Errorf("%w: 撤销认证会话: %w", ErrUnavailable, err)
+	}
+	return nil
 }
 
 func (s *Service) RevokeUser(ctx context.Context, userID uuid.UUID) error {
-	return s.sessions.RevokeUser(ctx, userID)
+	if err := s.sessions.RevokeUser(ctx, userID); err != nil {
+		return fmt.Errorf("%w: 撤销用户会话: %w", ErrUnavailable, err)
+	}
+	return nil
 }
 
 func newRefreshToken() (string, string, error) {

@@ -6,7 +6,7 @@
 
 GoBA Slim 是一个面向 Go HTTP 服务的模块化单体工程内核。它提供显式组合根、强类型配置、PostgreSQL 用户模块、Redis 认证会话、OpenAPI 契约和完整质量门禁，适合作为新业务服务的可靠起点。
 
-当前已完成 Phase 1-2；Phase 3 的认证会话核心闭环可运行，尚需完成 JWT 公钥轮换和补充安全验收。准确阶段状态见[路线图](docs/roadmap.md)。
+当前已完成 Phase 1-3：工程内核、PostgreSQL 用户模块、Redis 认证会话和 JWT 公钥轮换均可运行。准确阶段状态见[路线图](docs/roadmap.md)。
 
 ## 特性
 
@@ -63,6 +63,8 @@ task dev:down
 ```bash
 task auth:keygen
 ```
+
+需要轮换 JWT 密钥时，可通过 `task auth:public-key` 从旧私钥导出验证公钥，再生成新的签发密钥。完整步骤见[部署说明](docs/deployment.md)。
 
 完整命令、Schema 管理和工程边界见[开发说明](docs/development.md)。
 

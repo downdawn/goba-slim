@@ -32,7 +32,7 @@ import (
 func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	cfg := startPostgreSQL(t)
 	require.NoError(t, database.Initialize(t.Context(), cfg.Database))
-	configureRedis(t, &cfg)
+	redisContainer := configureRedis(t, &cfg)
 	cfg.Auth.PrivateKey = config.NewSecret(generatePrivateKey(t))
 	cfg.CORS.AllowOrigins = []string{"https://app.example.test"}
 	cfg.Server.Port = availablePort(t)
@@ -64,6 +64,28 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	require.NotEmpty(t, first.AccessToken)
 	require.NotEmpty(t, oldCookies)
 	require.True(t, oldCookies[0].HttpOnly)
+
+	createUser := authorizedJSON(t, client, http.MethodPost, baseURL+"/api/v1/users", map[string]any{
+		"username": "member", "password": "MemberPassword9", "display_name": "Member",
+	}, first.AccessToken)
+	require.Equal(t, http.StatusCreated, createUser.StatusCode)
+	var member generated.User
+	require.NoError(t, json.NewDecoder(createUser.Body).Decode(&member))
+	require.NoError(t, createUser.Body.Close())
+	memberJar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	memberClient := &http.Client{Jar: memberJar, Timeout: 10 * time.Second}
+	memberLogin := postJSON(t, memberClient, baseURL+"/api/v1/auth/login", map[string]string{"username": "member", "password": "MemberPassword9"}, "")
+	require.Equal(t, http.StatusOK, memberLogin.StatusCode)
+	var memberTokens generated.TokenResponse
+	require.NoError(t, json.NewDecoder(memberLogin.Body).Decode(&memberTokens))
+	require.NoError(t, memberLogin.Body.Close())
+	disableMember := authorizedJSON(t, client, http.MethodPut, baseURL+"/api/v1/users/"+member.Id.String()+"/status", map[string]string{"status": "disabled"}, first.AccessToken)
+	require.Equal(t, http.StatusOK, disableMember.StatusCode)
+	require.NoError(t, disableMember.Body.Close())
+	disabledMember := getAuthorized(t, memberClient, baseURL+"/api/v1/me", memberTokens.AccessToken)
+	require.Equal(t, http.StatusUnauthorized, disabledMember.StatusCode)
+	require.NoError(t, disabledMember.Body.Close())
 
 	me := getAuthorized(t, client, baseURL+"/api/v1/me", first.AccessToken)
 	require.Equal(t, http.StatusOK, me.StatusCode)
@@ -106,9 +128,33 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	afterLogout := getAuthorized(t, client, baseURL+"/api/v1/me", third.AccessToken)
 	require.Equal(t, http.StatusUnauthorized, afterLogout.StatusCode)
 	require.NoError(t, afterLogout.Body.Close())
+
+	loginForPasswordChange := postJSON(t, client, baseURL+"/api/v1/auth/login", map[string]string{"username": "admin", "password": "AdminPassword9"}, "")
+	require.Equal(t, http.StatusOK, loginForPasswordChange.StatusCode)
+	var fourth generated.TokenResponse
+	require.NoError(t, json.NewDecoder(loginForPasswordChange.Body).Decode(&fourth))
+	require.NoError(t, loginForPasswordChange.Body.Close())
+	changePassword := authorizedJSON(t, client, http.MethodPut, baseURL+"/api/v1/me/password", map[string]string{
+		"old_password": "AdminPassword9", "new_password": "NewAdminPassword9",
+	}, fourth.AccessToken)
+	require.Equal(t, http.StatusNoContent, changePassword.StatusCode)
+	require.NoError(t, changePassword.Body.Close())
+	afterPasswordChange := getAuthorized(t, client, baseURL+"/api/v1/me", fourth.AccessToken)
+	require.Equal(t, http.StatusUnauthorized, afterPasswordChange.StatusCode)
+	require.NoError(t, afterPasswordChange.Body.Close())
+
+	loginAfterPasswordChange := postJSON(t, client, baseURL+"/api/v1/auth/login", map[string]string{"username": "admin", "password": "NewAdminPassword9"}, "")
+	require.Equal(t, http.StatusOK, loginAfterPasswordChange.StatusCode)
+	var fifth generated.TokenResponse
+	require.NoError(t, json.NewDecoder(loginAfterPasswordChange.Body).Decode(&fifth))
+	require.NoError(t, loginAfterPasswordChange.Body.Close())
+	require.NoError(t, redisContainer.Stop(t.Context(), nil))
+	redisUnavailable := getAuthorized(t, client, baseURL+"/api/v1/me", fifth.AccessToken)
+	require.Equal(t, http.StatusServiceUnavailable, redisUnavailable.StatusCode)
+	require.NoError(t, redisUnavailable.Body.Close())
 }
 
-func configureRedis(t *testing.T, cfg *config.Config) {
+func configureRedis(t *testing.T, cfg *config.Config) testcontainers.Container {
 	t.Helper()
 	container, err := tcredis.Run(t.Context(), "redis:7-alpine")
 	require.NoError(t, err)
@@ -120,6 +166,7 @@ func configureRedis(t *testing.T, cfg *config.Config) {
 	cfg.Redis.Host = host
 	cfg.Redis.Port, err = strconv.Atoi(port.Port())
 	require.NoError(t, err)
+	return container
 }
 
 func generatePrivateKey(t *testing.T) string {
@@ -180,6 +227,19 @@ func getAuthorized(t *testing.T, client *http.Client, target, token string) *htt
 	t.Helper()
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 	require.NoError(t, err)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := client.Do(request)
+	require.NoError(t, err)
+	return response
+}
+
+func authorizedJSON(t *testing.T, client *http.Client, method, target string, body any, token string) *http.Response {
+	t.Helper()
+	encoded, err := json.Marshal(body)
+	require.NoError(t, err)
+	request, err := http.NewRequestWithContext(t.Context(), method, target, bytes.NewReader(encoded))
+	require.NoError(t, err)
+	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+token)
 	response, err := client.Do(request)
 	require.NoError(t, err)

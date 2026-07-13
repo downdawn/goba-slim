@@ -40,7 +40,36 @@ GOBA_REDIS_PASSWORD_FILE=/run/secrets/redis_password
 GOBA_AUTH_PRIVATE_KEY_FILE=/run/secrets/auth_private_key
 ```
 
+旧验证公钥通过 `kid=文件路径` 映射提供，多个值使用英文逗号分隔：
+
+```text
+GOBA_AUTH_KEY_ID=2026-07
+GOBA_AUTH_VERIFICATION_KEY_FILES=2026-06=/run/secrets/auth_public_2026_06.pem
+```
+
 推荐由部署平台把 Secret 挂载为只读文件。不要把实际 Secret 写入镜像、Compose 文件、仓库或日志。
+
+## JWT 密钥轮换
+
+Access Token 使用当前 Ed25519 私钥签发，并根据 JWT `kid` 从当前公钥和旧公钥集合中选择验证密钥。轮换不会延长 Token 生命周期，也不会绕过 Redis Session 校验。
+
+1. 从当前私钥导出旧公钥：
+
+   ```bash
+   task auth:public-key -- --private /run/secrets/auth_private_key --output /secure/auth_public_2026_06.pem
+   ```
+
+2. 生成带配套公钥的新密钥：
+
+   ```bash
+   task auth:keygen -- --output /secure/auth_private_2026_07.pem --public-output /secure/auth_public_2026_07.pem
+   ```
+
+3. 将新私钥设为 `GOBA_AUTH_PRIVATE_KEY_FILE`，更新 `GOBA_AUTH_KEY_ID`，并把旧 `kid` 与旧公钥加入 `GOBA_AUTH_VERIFICATION_KEY_FILES` 后滚动部署。
+4. 保留旧公钥至少一个 `GOBA_AUTH_ACCESS_TOKEN_TTL`，确认旧 Token 全部自然过期后再移除。旧私钥不再用于签发，应按密钥管理策略销毁或离线归档。
+
+当前 `key_id` 不能同时出现在旧公钥映射中。重复 `kid`、未知 `kid`、无效 PEM 或非 Ed25519 PKIX 公钥都会导致配置或认证失败。
+容器部署时，映射中的路径必须是容器内只读挂载路径；宿主机路径不会自动进入 API 容器。仓库默认 Compose 不挂载旧公钥，轮换部署应由实际编排平台增加对应 Secret/Volume。
 
 ## 启动容器
 

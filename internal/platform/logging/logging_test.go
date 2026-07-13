@@ -87,9 +87,12 @@ func TestRedactAttrsRedactsSensitiveValuesInsideStructs(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(RedactAttrs(slog.NewJSONHandler(&buf, nil)))
 
-	logger.Info("config", slog.Any("config", config.Config{Auth: config.AuthConfig{PrivateKey: config.NewSecret("plain-private-key")}}))
+	logger.Info("config", slog.Any("config", config.Config{Auth: config.AuthConfig{
+		PrivateKey: config.NewSecret("plain-private-key"), VerificationKeys: map[string]string{"old": "public-key-content"},
+	}}))
 
 	require.NotContains(t, buf.String(), "plain-private-key")
+	require.NotContains(t, buf.String(), "public-key-content")
 }
 
 func TestRedactAttrsDoesNotMutateGroupAttrs(t *testing.T) {
@@ -139,7 +142,7 @@ func TestSensitiveKeyClassification(t *testing.T) {
 	sensitive := []string{
 		"password", "TOKEN", "Authorization", "cookie", "private.key",
 		"access-token", "refresh token", "id_token", "API.KEY", "client-secret",
-		"secret", "set cookie",
+		"secret", "set cookie", "verification_keys",
 	}
 	metadata := []string{"access_token_ttl", "refresh-token-ttl", "private key file", "token_count", "secret_name"}
 

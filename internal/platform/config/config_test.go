@@ -42,6 +42,35 @@ func TestLoadReadsSecretFromFile(t *testing.T) {
 	require.Equal(t, "secret-from-file", cfg.Auth.PrivateKey.Reveal())
 }
 
+func TestLoadReadsVerificationPublicKeysFromFiles(t *testing.T) {
+	directory := t.TempDir()
+	publicKeyFile := filepath.Join(directory, "old-public.pem")
+	require.NoError(t, os.WriteFile(publicKeyFile, []byte("public-key\n"), 0o600))
+	configFile := filepath.Join(directory, "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("auth:\n  verification_key_files:\n    old: "+publicKeyFile+"\n"), 0o600))
+
+	cfg, err := Load(t.Context(), Options{File: configFile})
+
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"old": publicKeyFile}, cfg.Auth.VerificationKeyFiles)
+	require.Equal(t, map[string]string{"old": "public-key"}, cfg.Auth.VerificationKeys)
+}
+
+func TestLoadReadsVerificationPublicKeysFromEnvironment(t *testing.T) {
+	directory := t.TempDir()
+	oldKey := filepath.Join(directory, "old.pem")
+	olderKey := filepath.Join(directory, "older.pem")
+	require.NoError(t, os.WriteFile(oldKey, []byte("old"), 0o600))
+	require.NoError(t, os.WriteFile(olderKey, []byte("older"), 0o600))
+	t.Setenv("GOBA_AUTH_VERIFICATION_KEY_FILES", "old="+oldKey+",older="+olderKey)
+
+	cfg, err := Load(t.Context(), Options{})
+
+	require.NoError(t, err)
+	require.Equal(t, "old", cfg.Auth.VerificationKeys["old"])
+	require.Equal(t, "older", cfg.Auth.VerificationKeys["older"])
+}
+
 func TestLoadReadsDatabasePasswordFromFile(t *testing.T) {
 	secretFile := filepath.Join(t.TempDir(), "database-password")
 	require.NoError(t, os.WriteFile(secretFile, []byte("database-secret\n"), 0o600))
@@ -147,6 +176,7 @@ func TestValidateRejectsUnsafeConfigurations(t *testing.T) {
 		{name: "nonpositive timeout", mutate: func(cfg *Config) { cfg.Server.ReadTimeout = 0 }, field: "server.read_timeout"},
 		{name: "inverted token TTL", mutate: func(cfg *Config) { cfg.Auth.AccessTokenTTL = cfg.Auth.RefreshTokenTTL }, field: "auth.access_token_ttl"},
 		{name: "invalid trusted proxy", mutate: func(cfg *Config) { cfg.Server.TrustedProxies = []string{"invalid"} }, field: "server.trusted_proxies"},
+		{name: "current key duplicated", mutate: func(cfg *Config) { cfg.Auth.VerificationKeyFiles = map[string]string{cfg.Auth.KeyID: "old.pem"} }, field: "auth.verification_key_files"},
 		{name: "production debug", mutate: func(cfg *Config) { cfg.App.Environment = "production"; cfg.App.Debug = true }, field: "app.debug"},
 		{name: "production documentation", mutate: func(cfg *Config) { cfg.App.Environment = "production"; cfg.App.DocsEnabled = true }, field: "app.docs_enabled"},
 		{name: "production database without TLS", mutate: func(cfg *Config) {

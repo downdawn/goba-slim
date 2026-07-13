@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -67,6 +68,22 @@ func TestConfigPrintRedactsSecrets(t *testing.T) {
 	require.NotContains(t, output.String(), "private-secret")
 	require.NotContains(t, output.String(), "database-secret")
 	require.Contains(t, output.String(), "[REDACTED]")
+}
+
+func TestConfigPrintDoesNotExposeVerificationPublicKeyContents(t *testing.T) {
+	directory := t.TempDir()
+	publicKeyPath := filepath.Join(directory, "old-public.pem")
+	require.NoError(t, os.WriteFile(publicKeyPath, []byte("public-key-content"), 0o600))
+	configPath := filepath.Join(directory, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("auth:\n  verification_key_files:\n    old: "+publicKeyPath+"\n"), 0o600))
+	cmd, output := newTestRoot(t)
+	cmd.SetArgs([]string{"config", "print", "--config", configPath, "--redact"})
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	var printed redactedConfig
+	require.NoError(t, json.Unmarshal(output.Bytes(), &printed))
+	require.Equal(t, publicKeyPath, printed.Auth.VerificationKeyFiles["old"])
+	require.NotContains(t, output.String(), "public-key-content")
 }
 
 func TestDatabaseStatusReportsUninitializedSchema(t *testing.T) {
