@@ -12,11 +12,12 @@
 首次运行：
 
 ```bash
-task init
+task setup
+task dev:init
 task run
 ```
 
-本地配置不得提交。`task init` 在目标文件已存在时会拒绝覆盖。
+本地配置不得提交。`task setup` 只创建缺失文件，不会覆盖已有配置或私钥。
 
 ## 开发约定
 

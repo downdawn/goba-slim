@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:17-alpine
+    ports:
+      - "${GOBA_DATABASE_PORT:-5432}:5432"
     environment:
       POSTGRES_DB: goba
       POSTGRES_USER: goba
@@ -18,6 +20,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      - "${GOBA_REDIS_PORT:-6379}:6379"
     entrypoint: ["/bin/sh", "-c"]
     command: ["exec redis-server --requirepass \"$$(cat /run/secrets/redis_password)\""]
     secrets:
@@ -30,6 +34,7 @@ services:
     init: true
 
   goba:
+    profiles: ["app"]
     build:
       context: .
       dockerfile: deployments/Dockerfile
@@ -56,6 +61,7 @@ services:
         source: ./configs/config.example.yaml
         target: /etc/goba/config.yaml
         read_only: true
+    command: ["serve", "--config", "/etc/goba/config.yaml"]
     healthcheck:
       test: ["CMD", "/goba", "db", "status", "--config", "/etc/goba/config.yaml"]
       interval: 10s
@@ -91,7 +97,7 @@ secrets:
   redis_password:
     environment: GOBA_REDIS_PASSWORD
   auth_private_key:
-    environment: GOBA_AUTH_PRIVATE_KEY
+    file: ${GOBA_AUTH_PRIVATE_KEY_FILE:-configs/auth-private.local.pem}
 
 volumes:
   postgres_data:

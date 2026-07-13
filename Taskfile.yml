@@ -75,37 +75,47 @@ tasks:
     cmds:
       - go build -o bin/goba ./cmd/goba
 
-  init:
-    desc: 初始化不覆盖已有文件的本地开发配置
+  setup:
+    desc: 幂等创建缺失的本地配置、随机密码与 Ed25519 私钥
     cmds:
-      - cmd: |
-          powershell.exe -NoProfile -NonInteractive -Command "if ((Test-Path '.env') -or (Test-Path 'configs/config.local.yaml')) { Write-Error '本地配置已存在，拒绝覆盖'; exit 1 }; Copy-Item '.env.example' '.env'; Copy-Item 'configs/config.example.yaml' 'configs/config.local.yaml'"
-        platforms: [windows]
-      - cmd: |
-          if [ -e .env ] || [ -e configs/config.local.yaml ]; then echo "本地配置已存在，拒绝覆盖" >&2; exit 1; fi
-          cp .env.example .env
-          cp configs/config.example.yaml configs/config.local.yaml
-        platforms: [linux, darwin]
+      - go run ./tools/devtool setup
+      - go run ./cmd/goba config check --config configs/config.local.yaml --load-dotenv
+
+  auth:keygen:
+    desc: 生成不覆盖已有文件的 Ed25519 PKCS#8 私钥
+    cmds:
+      - go run ./tools/devtool keygen {{.CLI_ARGS}}
 
   run:
-    desc: 使用本地开发配置启动服务（首次请先执行 task init）
+    desc: 在宿主机使用本地开发配置启动 API
     cmds:
       - go run ./cmd/goba serve --config configs/config.local.yaml --load-dotenv
 
-  db:init:
-    desc: 使用本地配置显式初始化空数据库
+  dev:up:
+    desc: 启动本地 PostgreSQL 与 Redis
     cmds:
+      - docker compose up --detach --wait postgres redis
+
+  dev:init:
+    desc: 启动开发依赖并显式初始化空数据库
+    cmds:
+      - task: dev:up
       - go run ./cmd/goba db init --yes --config configs/config.local.yaml --load-dotenv
 
-  compose:up:
-    desc: 构建并启动本地 Compose 服务
+  dev:down:
+    desc: 停止本地开发依赖
     cmds:
-      - docker compose up --build --detach --wait
+      - docker compose down --remove-orphans
+
+  compose:up:
+    desc: 构建并启动完整本地验收环境
+    cmds:
+      - docker compose --profile app up --build --detach --wait
 
   compose:init:
-    desc: 启动 PostgreSQL 并显式初始化空数据库
+    desc: 启动 Compose 依赖并显式初始化空数据库
     cmds:
-      - docker compose up --detach --wait postgres
+      - task: dev:up
       - docker compose --profile tools run --build --rm db-init
 
   compose:down:

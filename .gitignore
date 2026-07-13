@@ -14,6 +14,7 @@
 .env.*
 !.env.example
 /configs/config.local.yaml
+/configs/*.local.pem
 
 # Go 构建与测试产物
 /bin/

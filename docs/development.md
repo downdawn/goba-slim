@@ -1,72 +1,105 @@
 # 开发说明
 
-## 前置条件
+## 环境要求
 
-- Go 1.26
-- Task（可选）
-- Docker（修改或验证容器链路时需要）
+- Go 1.26+
+- Task
+- Docker 与 Docker Compose
 
-## 常用命令
+Go 和 Task 需要位于 `PATH`。项目工具通过 Go `tool` directive 固定版本，无需全局安装 sqlc、oapi-codegen、golangci-lint 或 govulncheck。
+
+## 首次启动
 
 ```bash
-task init
+task setup
+task dev:init
+task run
+```
+
+`task setup` 是幂等操作，只创建缺失文件：
+
+- `.env`：随机生成本地 PostgreSQL、Redis 密码，并引用本地私钥文件；
+- `configs/config.local.yaml`：从非敏感示例配置复制；
+- `configs/auth-private.local.pem`：Ed25519 PKCS#8 PEM 私钥。
+
+这些文件均被 Git 忽略。已有文件不会被覆盖；需要轮换私钥时先自行移走旧文件，再执行 `task auth:keygen`。本地开发可以直接使用 `GOBA_DATABASE_PASSWORD` 和 `GOBA_REDIS_PASSWORD`，无需使用 `_FILE`。
+
+`task dev:init` 会启动 PostgreSQL 与 Redis，并对空数据库执行显式初始化 SQL。它不是迁移命令，已初始化数据库不应重复执行。
+
+## 日常开发
+
+推荐让依赖运行在 Docker 中，API 运行在宿主机：
+
+```bash
+task dev:up
+task run
+```
+
+常用命令：
+
+```bash
+task generate
 task generate:check
 task format
+task format:check
 task lint
 task test
 task test:integration
 task test:race
+task test:coverage
+task vet
 task vuln
+task build
 task check
+task dev:down
+```
+
+`task run`、`task dev:init` 会显式加载仓库根目录的 `.env`。直接调用 CLI 时需要同时传入本地配置参数：
+
+```bash
+go run ./cmd/goba config check --config configs/config.local.yaml --load-dotenv
+go run ./cmd/goba db status --config configs/config.local.yaml --load-dotenv
+go run ./cmd/goba user create-admin --username admin --config configs/config.local.yaml --load-dotenv
+```
+
+管理员密码通过交互式终端读取；非交互环境必须使用权限受控的 `--password-file`，不能把密码写入命令行参数。
+
+## 完整 Compose 验收
+
+`compose.yaml` 默认只启动 PostgreSQL 与 Redis。`app` profile 增加 API，`tools` profile 提供显式数据库初始化：
+
+```bash
+task setup
+task compose:init
 task compose:up
 task compose:down
 ```
 
-Windows 未将 Go 加入 `PATH` 时，可用完整路径执行 `go` 命令；Taskfile 与 CI 均假设 `go` 已在 `PATH`，以支持 Windows、macOS 和 Linux。
+该编排复用本地 `.env` 的随机密码和本地私钥文件，只用于开发及验收。修改宿主端口可设置 `GOBA_PORT`。
+PostgreSQL 与 Redis 默认分别发布到宿主机 `5432` 和 `6379`，与本地应用配置保持一致；端口已被占用时，可在 `.env` 同时调整 `GOBA_DATABASE_PORT` 或 `GOBA_REDIS_PORT`。
 
-## 本地配置初始化
+## Schema 与生成代码
 
-执行 `task init` 会从 `.env.example` 和 `configs/config.example.yaml` 生成 `.env` 与 `configs/config.local.yaml`。目标文件已存在时任务会失败，不会覆盖本地修改。启动本地服务使用：
+`db/schema` 是 Schema SQL 事实来源，`db/queries` 是查询事实来源。服务启动只检查 PostgreSQL 连接和 Schema 版本，不执行自动迁移。数据库变更必须提供显式 SQL，并由部署方按顺序执行。
 
-```bash
-task run
-```
-
-本地文件已被 Git 忽略；部署环境必须通过配置文件、Secret 挂载和环境变量提供实际配置。
-
-## OpenAPI 与 HTTP 契约
-
-`api/openapi/openapi.yaml` 是 HTTP 契约事实来源。`db/schema` 和 `db/queries` 是数据库事实来源。修改后执行 `task generate`，OpenAPI 与 sqlc 生成代码必须提交，且 `task generate:check` 与 CI 必须无差异。不得手工修改生成代码。
-
-Gin 仅存在于 `internal/platform/httpserver` 与 `internal/transport/httpapi` 边界；业务模块和共享包只能使用标准 `context.Context`，不得依赖 Gin、pgx、sqlc 或 go-redis 的具体类型。
-
-## 模块与错误处理
-
-模块按实际职责拆分：只有出现明确责任时才建立文件或子目录，不建立无边界的 `utils`、`helpers` 包。模块必须通过 Manifest 声明依赖；启动和停止使用可选生命周期接口。
-
-业务错误统一使用 `internal/shared/apperror` 表达，并只在 HTTP 边界映射为响应。未知错误不得泄露堆栈、数据库信息、路径、Token、Cookie、私钥或配置内容。
-
-## PostgreSQL 与用户模块
-
-数据库变更只在 `db/schema` 提供显式 SQL；`serve` 只检查连接和版本。首次初始化使用：
+`api/openapi/openapi.yaml` 是 HTTP 契约事实来源。修改 OpenAPI 或 SQL 后执行：
 
 ```bash
-task db:init
+task generate
+task generate:check
 ```
 
-sqlc 只在数据适配器中使用，生成类型不得进入业务服务。用户事务由应用服务通过 Unit of Work 控制，事务对象不得写入 `context.Context`。Repository 测试使用真实 PostgreSQL，不以 SQLite 或 SQL Mock 代替主要保证。
+`api/openapi/generated` 与 `db/generated` 中的代码由工具生成，不得手工修改。
 
-## Redis 与认证
+## 工程边界
 
-Redis 是认证会话的必要依赖，业务服务只依赖 `SessionStore` 与 `RateLimiter`。Refresh Token 轮换和重用检测由内嵌 Lua 保证原子性；不得使用 `KEYS` 或在 Redis 保存明文 Token。认证集成测试覆盖并发刷新、重放撤销、Cookie、Origin、登出和 Redis 故障时的 fail closed 行为。
+- Gin 只存在于 `internal/platform/httpserver` 和 `internal/transport/httpapi`。
+- 业务模块不依赖 Gin、pgx、sqlc 或 go-redis 的具体类型。
+- 业务错误通过 `internal/shared/apperror` 表达，只在 HTTP 边界映射响应。
+- 模块通过 Manifest 声明依赖，不建立无职责的空目录或通用工具包。
+- Secret、Token、Cookie、私钥和 Authorization 信息不得进入日志或错误响应。
 
-## 配置与 Secret
-
-配置按默认值、YAML、`GOBA_` 环境变量覆盖。`.env` 不会自动加载，只允许本地开发显式选择加载；生产部署由平台注入环境变量。Secret 的明文值与 `_FILE` 来源互斥，日志和 CLI 输出必须保持脱敏。
-
-## 测试与提交前检查
-
-功能或行为变更遵循测试先行：先编写能失败的最小测试，再实现代码并运行相关包测试。提交前至少执行：
+提交前至少执行：
 
 ```bash
 task check
@@ -74,21 +107,3 @@ task test:race
 task lint
 git diff --check
 ```
-
-本地容器开发使用 Compose：
-
-```bash
-docker compose up --build --wait
-docker compose down
-```
-
-Compose 包含应用、PostgreSQL 和 Redis。首次使用前在当前 Shell 设置数据库密码、Redis 密码和 Ed25519 私钥 Secret，再执行 `task compose:init`；后续使用 `task compose:up`。
-
-镜像级构建和排障可直接执行：
-
-```bash
-docker build -f deployments/Dockerfile -t goba-slim:foundation .
-docker run --rm -p 8000:8000 -v /path/to/config.yaml:/etc/goba/config.yaml:ro goba-slim:foundation
-```
-
-镜像以非 root 用户运行，TLS 证书由宿主 Nginx、Ingress 或 API Gateway 管理。本机缺少 Docker 时必须如实记录，并由 CI 或目标环境补验。
