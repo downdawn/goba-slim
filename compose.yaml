@@ -34,7 +34,6 @@ services:
     init: true
 
   goba:
-    profiles: ["app"]
     build:
       context: .
       dockerfile: deployments/Dockerfile
@@ -52,8 +51,8 @@ services:
       - redis_password
       - auth_private_key
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     volumes:
@@ -71,7 +70,6 @@ services:
     init: true
 
   db-init:
-    profiles: ["tools"]
     build:
       context: .
       dockerfile: deployments/Dockerfile

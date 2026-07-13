@@ -54,9 +54,7 @@ jobs:
           }
           trap cleanup EXIT
           docker compose config --quiet
-          docker compose up --detach --wait postgres redis
-          docker compose --profile tools run --build --rm db-init
-          docker compose --profile app up --build --detach --wait
+          docker compose up --build --detach --wait
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/livez" >/dev/null
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/readyz" >/dev/null
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/openapi.json" >/dev/null

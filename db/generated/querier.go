@@ -8,16 +8,17 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
 	CountActiveSuperusers(ctx context.Context) (int64, error)
-	CountPublicTables(ctx context.Context) (int64, error)
 	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	GetSchemaVersion(ctx context.Context) (SchemaMigration, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	ListPublicTables(ctx context.Context) ([]pgtype.Text, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	LockSuperuserChanges(ctx context.Context) error
 	SetUserMultipleSessions(ctx context.Context, arg SetUserMultipleSessionsParams) (User, error)

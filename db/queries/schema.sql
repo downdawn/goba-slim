@@ -4,7 +4,8 @@ FROM schema_migrations
 ORDER BY version DESC
 LIMIT 1;
 
--- name: CountPublicTables :one
-SELECT count(*)::bigint
+-- name: ListPublicTables :many
+SELECT tablename
 FROM pg_catalog.pg_tables
-WHERE schemaname = 'public';
+WHERE schemaname = 'public'
+ORDER BY tablename;

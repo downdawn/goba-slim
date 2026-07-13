@@ -13,7 +13,7 @@
 
 ```bash
 task setup
-task dev:init
+task db:init
 task run
 ```
 

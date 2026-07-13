@@ -175,12 +175,31 @@ func Initialize(ctx context.Context, cfg config.DatabaseConfig) error {
 		return fmt.Errorf("锁定数据库初始化失败: %w", err)
 	}
 	queries := dbgen.New(tx)
-	tableCount, err := queries.CountPublicTables(ctx)
+	tables, err := queries.ListPublicTables(ctx)
 	if err != nil {
 		return fmt.Errorf("检查数据库表失败: %w", err)
 	}
-	if tableCount != 0 {
-		return ErrDatabaseNotEmpty
+	if len(tables) != 0 {
+		migration, err := queries.GetSchemaVersion(ctx)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+				return ErrDatabaseNotEmpty
+			}
+			return fmt.Errorf("检查数据库 Schema 版本失败: %w", err)
+		}
+		if migration.Version != schema.CurrentVersion {
+			return fmt.Errorf("%w: 当前版本 %d，期望版本 %d", ErrSchemaMismatch, migration.Version, schema.CurrentVersion)
+		}
+		if len(tables) != len(schema.CurrentPublicTables) {
+			return ErrDatabaseNotEmpty
+		}
+		for index, table := range tables {
+			if !table.Valid || table.String != schema.CurrentPublicTables[index] {
+				return ErrDatabaseNotEmpty
+			}
+		}
+		return nil
 	}
 	if _, err := tx.Exec(ctx, schema.InitialSQL); err != nil {
 		return fmt.Errorf("执行初始化 SQL 失败: %w", err)

@@ -7,20 +7,9 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
-
-const countPublicTables = `-- name: CountPublicTables :one
-SELECT count(*)::bigint
-FROM pg_catalog.pg_tables
-WHERE schemaname = 'public'
-`
-
-func (q *Queries) CountPublicTables(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countPublicTables)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
 
 const getSchemaVersion = `-- name: GetSchemaVersion :one
 SELECT version, name, applied_at
@@ -34,4 +23,31 @@ func (q *Queries) GetSchemaVersion(ctx context.Context) (SchemaMigration, error)
 	var i SchemaMigration
 	err := row.Scan(&i.Version, &i.Name, &i.AppliedAt)
 	return i, err
+}
+
+const listPublicTables = `-- name: ListPublicTables :many
+SELECT tablename
+FROM pg_catalog.pg_tables
+WHERE schemaname = 'public'
+ORDER BY tablename
+`
+
+func (q *Queries) ListPublicTables(ctx context.Context) ([]pgtype.Text, error) {
+	rows, err := q.db.Query(ctx, listPublicTables)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.Text{}
+	for rows.Next() {
+		var tablename pgtype.Text
+		if err := rows.Scan(&tablename); err != nil {
+			return nil, err
+		}
+		items = append(items, tablename)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

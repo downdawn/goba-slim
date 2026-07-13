@@ -55,7 +55,7 @@ func newDatabaseInitCommand(deps Dependencies) *cobra.Command {
 				return fmt.Errorf("加载配置失败: %w", err)
 			}
 			if !confirmed {
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "将初始化 %s:%d/%s，输入 yes 继续: ", cfg.Database.Host, cfg.Database.Port, cfg.Database.Name); err != nil {
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "将检查并在必要时初始化 %s:%d/%s，输入 yes 继续: ", cfg.Database.Host, cfg.Database.Port, cfg.Database.Name); err != nil {
 					return err
 				}
 				scanner := bufio.NewScanner(cmd.InOrStdin())
@@ -69,7 +69,7 @@ func newDatabaseInitCommand(deps Dependencies) *cobra.Command {
 			if err := deps.DBInit(cmd.Context(), cfg); err != nil {
 				return fmt.Errorf("初始化数据库失败: %w", err)
 			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), "数据库初始化完成")
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), "数据库 Schema 已就绪")
 			return err
 		},
 	}

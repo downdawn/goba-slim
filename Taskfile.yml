@@ -91,16 +91,15 @@ tasks:
     cmds:
       - go run ./cmd/goba serve --config configs/config.local.yaml --load-dotenv
 
+  db:init:
+    desc: 初始化当前配置指向的数据库 Schema
+    cmds:
+      - go run ./cmd/goba db init --yes --config configs/config.local.yaml --load-dotenv
+
   dev:up:
     desc: 启动本地 PostgreSQL 与 Redis
     cmds:
       - docker compose up --detach --wait postgres redis
-
-  dev:init:
-    desc: 启动开发依赖并显式初始化空数据库
-    cmds:
-      - task: dev:up
-      - go run ./cmd/goba db init --yes --config configs/config.local.yaml --load-dotenv
 
   dev:down:
     desc: 停止本地开发依赖
@@ -108,15 +107,10 @@ tasks:
       - docker compose down --remove-orphans
 
   compose:up:
-    desc: 构建并启动完整本地验收环境
+    desc: 一键初始化并启动完整 Compose 环境
     cmds:
-      - docker compose --profile app up --build --detach --wait
-
-  compose:init:
-    desc: 启动 Compose 依赖并显式初始化空数据库
-    cmds:
-      - task: dev:up
-      - docker compose --profile tools run --build --rm db-init
+      - task: setup
+      - docker compose up --build --detach --wait
 
   compose:down:
     desc: 停止并删除本地 Compose 服务

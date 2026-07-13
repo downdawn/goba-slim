@@ -2,9 +2,9 @@
 
 ## 部署模型
 
-GoBA Slim 生产环境只部署 API 镜像。PostgreSQL 与 Redis 是外部依赖，可以是独立主机、集群或云托管服务。应用镜像不内置数据库，不负责创建实例，也不会在启动时修改 Schema。
+GoBA Slim 支持两种部署拓扑：完整 Compose 适合开发、验收和小规模自托管；API 镜像连接外部 PostgreSQL/Redis 适合托管数据库、集群和平台化部署。无论哪种拓扑，API、PostgreSQL 与 Redis 都保持独立容器或独立服务，应用镜像不内置数据库，也不会在启动时修改 Schema。
 
-推荐由 Kubernetes、Nomad、云容器平台或自有编排系统管理容器。仓库根目录的 `compose.yaml` 面向本地开发和验收，不作为生产模板。
+生产环境可由 Docker Compose、Kubernetes、Nomad、云容器平台或自有编排系统管理。仓库根目录的 `compose.yaml` 提供可运行的自托管基线，但上线前必须按风险补齐 TLS、备份、监控、资源限制和恢复策略。
 
 ## 构建镜像
 
@@ -65,13 +65,15 @@ docker run --rm -p 8000:8000 \
 
 ## 数据库初始化
 
-首次部署前，由受控的一次性 Job 对目标空数据库执行：
+数据库实例和目标空数据库由部署方或托管平台创建。首次部署前，由受控的一次性 Job 初始化 GoBA Schema：
 
 ```bash
 goba db init --yes --config /etc/goba/config.yaml
 ```
 
-后续 Schema 变更由部署流程按 `db/schema` 中的显式 SQL 执行。常驻 API 容器只检查连接和 Schema 版本，不获得自动修改数据库的职责。
+该命令在当前 Schema 已就绪时直接成功，但会拒绝未知表、缺失表或版本不匹配的数据库。后续 Schema 变更由部署流程按 `db/schema` 中的显式 SQL 执行。常驻 API 容器只检查连接和 Schema 版本，不获得自动修改数据库的职责。
+
+仓库提供的 `task compose:up` 可一行启动 PostgreSQL、Redis、一次性初始化任务和 API，适合开发、验收与小规模自托管。它仍然使用职责独立的多个容器；正式部署应按风险补充持久化备份、TLS、监控和恢复方案。
 
 ## 健康检查
 

@@ -31,7 +31,7 @@ cmd/goba
 
 `internal/platform` 承载配置、PostgreSQL、Redis、日志、HTTP Server 和健康检查等平台能力。用户业务模型和服务不依赖 pgx/sqlc；认证服务不依赖 go-redis 或 Gin。基础设施适配器负责把具体类型转换到用途级接口。`internal/transport/httpapi` 负责 OpenAPI 映射、Bearer、Cookie、Origin 和统一错误响应。
 
-数据库在核心模块之前启动并检查 PostgreSQL 16+ 与 Schema 版本，关闭时按相反顺序释放。`serve` 不修改 Schema；只有显式 `goba db init` 可对空数据库执行 `db/schema` 中的初始化 SQL。用户写入通过模块内 Unit of Work 控制事务，事务对象不进入 Context。
+数据库在核心模块之前启动并检查 PostgreSQL 16+ 与 Schema 版本，关闭时按相反顺序释放。`serve` 不修改 Schema；只有显式 `goba db init` 可在空数据库中执行 `db/schema` 初始化 SQL，当前 Schema 已就绪时该命令幂等成功。用户写入通过模块内 Unit of Work 控制事务，事务对象不进入 Context。
 
 ## 配置与安全
 
