@@ -12,9 +12,11 @@ import (
 	"encoding/pem"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -36,6 +38,9 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	cfg.Auth.PrivateKey = config.NewSecret(generatePrivateKey(t))
 	cfg.CORS.AllowOrigins = []string{"https://app.example.test"}
 	cfg.Server.Port = availablePort(t)
+	cfg.Modules.File = true
+	cfg.File.StoragePath = filepath.Join(t.TempDir(), "uploads")
+	cfg.Modules.SystemConfig = true
 
 	_, err := app.CreateAdmin(t.Context(), cfg, user.CreateInput{Username: "admin", Password: "AdminPassword9"})
 	require.NoError(t, err)
@@ -64,6 +69,8 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	require.NotEmpty(t, first.AccessToken)
 	require.NotEmpty(t, oldCookies)
 	require.True(t, oldCookies[0].HttpOnly)
+
+	testOptionalModulesHTTP(t, client, baseURL, first.AccessToken)
 
 	createUser := authorizedJSON(t, client, http.MethodPost, baseURL+"/api/v1/users", map[string]any{
 		"username": "member", "password": "MemberPassword9", "display_name": "Member",
@@ -152,6 +159,70 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	redisUnavailable := getAuthorized(t, client, baseURL+"/api/v1/me", fifth.AccessToken)
 	require.Equal(t, http.StatusServiceUnavailable, redisUnavailable.StatusCode)
 	require.NoError(t, redisUnavailable.Body.Close())
+}
+
+func testOptionalModulesHTTP(t *testing.T, client *http.Client, baseURL, accessToken string) {
+	t.Helper()
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 32)...)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "ignored.svg")
+	require.NoError(t, err)
+	_, err = part.Write(png)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, baseURL+"/api/v1/files", &body)
+	require.NoError(t, err)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := client.Do(request)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, response.StatusCode)
+	var uploaded generated.FileObject
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&uploaded))
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, "image/png", uploaded.ContentType)
+	require.Contains(t, uploaded.Key, ".png")
+
+	publicFile, err := client.Get(baseURL + uploaded.Url) //nolint:noctx // 固定本地测试请求由客户端超时约束。
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, publicFile.StatusCode)
+	content, err := io.ReadAll(publicFile.Body)
+	require.NoError(t, err)
+	require.NoError(t, publicFile.Body.Close())
+	require.Equal(t, png, content)
+	require.Contains(t, publicFile.Header.Get("Cache-Control"), "immutable")
+
+	created := authorizedJSON(t, client, http.MethodPost, baseURL+"/api/v1/system-configs", map[string]any{
+		"key": "feature.banner", "value": true, "value_type": "boolean", "is_public": true,
+	}, accessToken)
+	require.Equal(t, http.StatusCreated, created.StatusCode)
+	require.NoError(t, created.Body.Close())
+	publicConfigs, err := client.Get(baseURL + "/api/v1/system-configs/public") //nolint:noctx // 固定本地测试请求由客户端超时约束。
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, publicConfigs.StatusCode)
+	var publicList generated.PublicSystemConfigList
+	require.NoError(t, json.NewDecoder(publicConfigs.Body).Decode(&publicList))
+	require.NoError(t, publicConfigs.Body.Close())
+	require.Len(t, publicList.Items, 1)
+	require.Equal(t, "feature.banner", publicList.Items[0].Key)
+
+	updated := authorizedJSON(t, client, http.MethodPut, baseURL+"/api/v1/system-configs/feature.banner", map[string]any{
+		"value": false, "value_type": "boolean", "is_public": true,
+	}, accessToken)
+	require.Equal(t, http.StatusOK, updated.StatusCode)
+	require.NoError(t, updated.Body.Close())
+	deletedConfig := authorizedJSON(t, client, http.MethodDelete, baseURL+"/api/v1/system-configs/feature.banner", nil, accessToken)
+	require.Equal(t, http.StatusNoContent, deletedConfig.StatusCode)
+	require.NoError(t, deletedConfig.Body.Close())
+
+	deleteFile, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, baseURL+"/api/v1/files/"+uploaded.Key, nil)
+	require.NoError(t, err)
+	deleteFile.Header.Set("Authorization", "Bearer "+accessToken)
+	deletedFile, err := client.Do(deleteFile)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, deletedFile.StatusCode)
+	require.NoError(t, deletedFile.Body.Close())
 }
 
 func configureRedis(t *testing.T, cfg *config.Config) testcontainers.Container {

@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/downdawn/goba-slim/api/openapi/generated"
 	"github.com/downdawn/goba-slim/internal/platform/config"
@@ -39,18 +40,72 @@ func NewRouter(options Options) *gin.Engine {
 		requestIDMiddleware(),
 		securityHeadersMiddleware(),
 		corsMiddleware(options.Config.CORS),
-		bodyLimitMiddleware(defaultMaxBodyBytes),
+		bodyLimitMiddleware(defaultMaxBodyBytes, fileUploadBodyLimit(options.Config)),
 		accessLogMiddleware(options.Logger),
 		timeoutMiddleware(options.Config.Server.ReadTimeout),
 	)
 
-	generated.RegisterHandlersWithOptions(router, options.Handler, generated.GinServerOptions{ErrorHandler: func(ctx *gin.Context, err error, _ int) {
+	generated.RegisterHandlersWithOptions(optionalModuleRouter{IRouter: router, files: options.Config.Modules.File, systemConfig: options.Config.Modules.SystemConfig}, options.Handler, generated.GinServerOptions{ErrorHandler: func(ctx *gin.Context, err error, _ int) {
 		httpapi.WriteError(ctx, apperror.Validation("INVALID_REQUEST", "error.invalid_request", "请求参数无效", err))
 	}})
 	if options.Config.App.Environment != "production" && options.Config.App.DocsEnabled {
 		registerDocumentation(router)
 	}
 	return router
+}
+
+type optionalModuleRouter struct {
+	gin.IRouter
+	files        bool
+	systemConfig bool
+}
+
+func (r optionalModuleRouter) GET(path string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	if !r.files && path == "/files/:ownerId/:fileName" {
+		return r
+	}
+	if !r.systemConfig && strings.HasPrefix(path, "/api/v1/system-configs") {
+		return r
+	}
+	return r.IRouter.GET(path, handlers...)
+}
+
+func (r optionalModuleRouter) POST(path string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	if !r.files && path == "/api/v1/files" {
+		return r
+	}
+	if !r.systemConfig && strings.HasPrefix(path, "/api/v1/system-configs") {
+		return r
+	}
+	return r.IRouter.POST(path, handlers...)
+}
+
+func (r optionalModuleRouter) DELETE(path string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	if !r.files && path == "/api/v1/files/:ownerId/:fileName" {
+		return r
+	}
+	if !r.systemConfig && strings.HasPrefix(path, "/api/v1/system-configs") {
+		return r
+	}
+	return r.IRouter.DELETE(path, handlers...)
+}
+
+func (r optionalModuleRouter) PUT(path string, handlers ...gin.HandlerFunc) gin.IRoutes {
+	if !r.systemConfig && strings.HasPrefix(path, "/api/v1/system-configs") {
+		return r
+	}
+	return r.IRouter.PUT(path, handlers...)
+}
+
+func fileUploadBodyLimit(cfg config.Config) int64 {
+	if !cfg.Modules.File {
+		return defaultMaxBodyBytes
+	}
+	limit := cfg.File.ImageMaxBytes
+	if cfg.File.VideoEnabled && cfg.File.VideoMaxBytes > limit {
+		limit = cfg.File.VideoMaxBytes
+	}
+	return limit + multipartOverheadBytes
 }
 
 const swaggerUIHTML = `<!doctype html>

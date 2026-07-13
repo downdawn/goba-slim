@@ -14,16 +14,22 @@ import (
 type Querier interface {
 	CountActiveSuperusers(ctx context.Context) (int64, error)
 	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
+	CreateSystemConfig(ctx context.Context, arg CreateSystemConfigParams) (SystemConfig, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteSystemConfig(ctx context.Context, key string) (int64, error)
 	GetSchemaVersion(ctx context.Context) (SchemaMigration, error)
+	GetSystemConfig(ctx context.Context, key string) (SystemConfig, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	ListPublicSystemConfigs(ctx context.Context) ([]SystemConfig, error)
 	ListPublicTables(ctx context.Context) ([]pgtype.Text, error)
+	ListSystemConfigs(ctx context.Context) ([]SystemConfig, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	LockSuperuserChanges(ctx context.Context) error
 	SetUserMultipleSessions(ctx context.Context, arg SetUserMultipleSessionsParams) (User, error)
 	SetUserStatus(ctx context.Context, arg SetUserStatusParams) (User, error)
 	SetUserSuperuser(ctx context.Context, arg SetUserSuperuserParams) (User, error)
+	UpdateSystemConfig(ctx context.Context, arg UpdateSystemConfigParams) (SystemConfig, error)
 	UpdateUserLastLogin(ctx context.Context, arg UpdateUserLastLoginParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (User, error)
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)

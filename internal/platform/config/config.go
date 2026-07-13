@@ -17,14 +17,16 @@ import (
 )
 
 type Config struct {
-	App      AppConfig      `koanf:"app"`
-	Server   ServerConfig   `koanf:"server"`
-	Database DatabaseConfig `koanf:"database"`
-	Redis    RedisConfig    `koanf:"redis"`
-	CORS     CORSConfig     `koanf:"cors"`
-	Auth     AuthConfig     `koanf:"auth"`
-	Log      LogConfig      `koanf:"log"`
-	Modules  ModuleConfig   `koanf:"modules"`
+	App          AppConfig          `koanf:"app"`
+	Server       ServerConfig       `koanf:"server"`
+	Database     DatabaseConfig     `koanf:"database"`
+	Redis        RedisConfig        `koanf:"redis"`
+	CORS         CORSConfig         `koanf:"cors"`
+	Auth         AuthConfig         `koanf:"auth"`
+	File         FileConfig         `koanf:"file"`
+	SystemConfig SystemConfigConfig `koanf:"systemconfig"`
+	Log          LogConfig          `koanf:"log"`
+	Modules      ModuleConfig       `koanf:"modules"`
 }
 
 type AppConfig struct {
@@ -105,6 +107,17 @@ type LogConfig struct {
 	Format string `koanf:"format"`
 }
 
+type FileConfig struct {
+	StoragePath   string `koanf:"storage_path"`
+	ImageMaxBytes int64  `koanf:"image_max_bytes"`
+	VideoEnabled  bool   `koanf:"video_enabled"`
+	VideoMaxBytes int64  `koanf:"video_max_bytes"`
+}
+
+type SystemConfigConfig struct {
+	CacheTTL time.Duration `koanf:"cache_ttl"`
+}
+
 type ModuleConfig struct {
 	File         bool `koanf:"file"`
 	SystemConfig bool `koanf:"systemconfig"`
@@ -154,7 +167,12 @@ func Default() Config {
 			RefreshCookie: "goba_refresh", CookiePath: "/api/v1/auth", CookieSameSite: "strict",
 			LoginAttempts: 5, LoginWindow: time.Minute,
 		},
-		Log: LogConfig{Level: "info", Format: "json"},
+		File: FileConfig{
+			StoragePath: "var/uploads", ImageMaxBytes: 5 << 20,
+			VideoEnabled: false, VideoMaxBytes: 100 << 20,
+		},
+		SystemConfig: SystemConfigConfig{CacheTTL: 5 * time.Minute},
+		Log:          LogConfig{Level: "info", Format: "json"},
 	}
 }
 
@@ -269,6 +287,20 @@ func applyMap(cfg *Config, data map[string]any) {
 			*target = int32(value)
 		}
 	}
+	setInt64 := func(m map[string]any, key string, target *int64) {
+		switch value := m[key].(type) {
+		case int:
+			*target = int64(value)
+		case int64:
+			*target = value
+		case float64:
+			if value < math.MinInt64 || value > math.MaxInt64 {
+				*target = -1
+				return
+			}
+			*target = int64(value)
+		}
+	}
 	setDuration := func(m map[string]any, key string, target *time.Duration) {
 		if value, ok := m[key].(string); ok {
 			if parsed, err := time.ParseDuration(value); err == nil {
@@ -377,6 +409,15 @@ func applyMap(cfg *Config, data map[string]any) {
 		setString(m, "level", &cfg.Log.Level)
 		setString(m, "format", &cfg.Log.Format)
 	}
+	if m := section("file"); m != nil {
+		setString(m, "storage_path", &cfg.File.StoragePath)
+		setInt64(m, "image_max_bytes", &cfg.File.ImageMaxBytes)
+		setBool(m, "video_enabled", &cfg.File.VideoEnabled)
+		setInt64(m, "video_max_bytes", &cfg.File.VideoMaxBytes)
+	}
+	if m := section("systemconfig"); m != nil {
+		setDuration(m, "cache_ttl", &cfg.SystemConfig.CacheTTL)
+	}
 	if m := section("modules"); m != nil {
 		setBool(m, "file", &cfg.Modules.File)
 		setBool(m, "systemconfig", &cfg.Modules.SystemConfig)
@@ -433,6 +474,16 @@ func applyEnvironment(cfg *Config, values []string, prefix string) error {
 				return invalidEnvironmentValue(prefix + key)
 			}
 			*target = int32(parsed)
+		}
+		return nil
+	}
+	setInt64 := func(key string, target *int64) error {
+		if value, ok := env[prefix+key]; ok {
+			parsed, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return invalidEnvironmentValue(prefix + key)
+			}
+			*target = parsed
 		}
 		return nil
 	}
@@ -553,6 +604,19 @@ func applyEnvironment(cfg *Config, values []string, prefix string) error {
 	}
 	setString("LOG_LEVEL", &cfg.Log.Level)
 	setString("LOG_FORMAT", &cfg.Log.Format)
+	setString("FILE_STORAGE_PATH", &cfg.File.StoragePath)
+	if err := setInt64("FILE_IMAGE_MAX_BYTES", &cfg.File.ImageMaxBytes); err != nil {
+		return err
+	}
+	if err := setBool("FILE_VIDEO_ENABLED", &cfg.File.VideoEnabled); err != nil {
+		return err
+	}
+	if err := setInt64("FILE_VIDEO_MAX_BYTES", &cfg.File.VideoMaxBytes); err != nil {
+		return err
+	}
+	if err := setDuration("SYSTEMCONFIG_CACHE_TTL", &cfg.SystemConfig.CacheTTL); err != nil {
+		return err
+	}
 	if err := setBool("MODULES_FILE", &cfg.Modules.File); err != nil {
 		return err
 	}
@@ -746,6 +810,18 @@ func (c Config) Validate() error {
 	}
 	if c.Log.Format != "json" && c.Log.Format != "text" {
 		return fmt.Errorf("log.format 必须是 json 或 text")
+	}
+	if strings.TrimSpace(c.File.StoragePath) == "" {
+		return fmt.Errorf("file.storage_path 不能为空")
+	}
+	if c.File.ImageMaxBytes < 512 || c.File.ImageMaxBytes > 100<<20 {
+		return fmt.Errorf("file.image_max_bytes 必须在 512 到 104857600 之间")
+	}
+	if c.File.VideoMaxBytes < 512 || c.File.VideoMaxBytes > 2<<30 {
+		return fmt.Errorf("file.video_max_bytes 必须在 512 到 2147483648 之间")
+	}
+	if c.SystemConfig.CacheTTL <= 0 || c.SystemConfig.CacheTTL > 24*time.Hour {
+		return fmt.Errorf("systemconfig.cache_ttl 必须大于 0 且不超过 24h")
 	}
 	return nil
 }

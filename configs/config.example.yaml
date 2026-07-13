@@ -57,6 +57,13 @@ auth:
   login_window: 1m
   # 私钥仅通过本地挂载文件或 GOBA_AUTH_PRIVATE_KEY_FILE 提供；部署时填写挂载路径。
   private_key_file: ""
+file:
+  storage_path: var/uploads
+  image_max_bytes: 5242880
+  video_enabled: false
+  video_max_bytes: 104857600
+systemconfig:
+  cache_ttl: 5m
 log:
   level: info
   format: json

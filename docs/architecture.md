@@ -25,6 +25,10 @@ cmd/goba
         -> internal/modules/user
            -> internal/modules/user/postgres
               -> db/generated
+        -> internal/modules/file (可选)
+        -> internal/modules/systemconfig (可选)
+           -> internal/modules/systemconfig/postgres
+           -> internal/modules/systemconfig/redis
         -> internal/transport/httpapi
            -> api/openapi/generated
 ```
@@ -40,6 +44,10 @@ cmd/goba
 生产环境必须关闭 debug 和 API 文档。TLS 由部署侧的 Nginx、Ingress 或 API Gateway 终止，应用镜像以非 root 用户运行。
 
 JWT 使用当前 Ed25519 私钥签发，并按 `kid` 从当前公钥和旧公钥集合中选择验证密钥。轮换期间只保留旧公钥，不继续加载旧私钥；每次受保护请求仍校验 Redis Session，因此改密、停用和主动撤销可以立即失效，不依赖 Access Token 自然过期。
+
+可选文件模块通过 `ObjectStore` 窄接口访问存储，当前 LocalStore 使用受根目录约束的文件系统操作。对象 Key 只由服务端生成并携带所有者 UUID；有效用户可上传，公开路由可读取，只有所有者或超级管理员可删除。模块关闭时相关路由不会注册。
+
+可选动态配置模块只管理非秘密业务参数，支持 string、integer、boolean、duration 与 string list。管理接口当前复用超级管理员语义，公开读取接口不需要认证。公开列表使用 Redis Cache-Aside，Redis 读取故障时回源 PostgreSQL；写入事务提交后才删除缓存并发布进程内 `ConfigChanged` 事件。启动配置、Secret 和信任边界键会被拒绝。
 
 ## 演进约束
 

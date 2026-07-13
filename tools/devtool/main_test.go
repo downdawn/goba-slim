@@ -107,6 +107,22 @@ func TestSetupCreatesMissingFilesAndPreservesExistingFiles(t *testing.T) {
 	require.Equal(t, configContent, actualConfig)
 }
 
+func TestRunReportsAllCommandsInUsage(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	err := run([]string{"unknown"}, &output)
+	if err == nil {
+		t.Fatal("预期未知命令返回错误")
+	}
+
+	for _, command := range []string{"public-key", "build-time", "pgo-profile-exists"} {
+		if !strings.Contains(err.Error(), command) {
+			t.Errorf("用法缺少命令 %q: %v", command, err)
+		}
+	}
+}
+
 func readTestFile(t *testing.T, path string) []byte {
 	t.Helper()
 	// #nosec G304 -- 测试只读取自身临时目录中的文件。

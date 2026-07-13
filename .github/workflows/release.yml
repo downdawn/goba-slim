@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64}
+          - {goos: linux, goarch: arm64}
+          - {goos: windows, goarch: amd64}
+          - {goos: darwin, goarch: amd64}
+          - {goos: darwin, goarch: arm64}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: true
+      - name: Build archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          commit="${GITHUB_SHA}"
+          built="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          name="goba-${version}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "dist/${name}"
+          suffix=""
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then suffix=".exe"; fi
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -trimpath \
+            -ldflags="-s -w -X github.com/downdawn/goba-slim/internal/version.Version=${version} -X github.com/downdawn/goba-slim/internal/version.Commit=${commit} -X github.com/downdawn/goba-slim/internal/version.BuildTime=${built} -X github.com/downdawn/goba-slim/internal/version.Dirty=false" \
+            -o "dist/${name}/goba${suffix}" ./cmd/goba
+          cp LICENSE README.md "dist/${name}/"
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            (cd dist && zip -qr "${name}.zip" "${name}")
+          else
+            tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          fi
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: binary-zip-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.zip
+          if-no-files-found: ignore
+
+  publish:
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: dist
+      - uses: anchore/sbom-action@v0.9.0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/goba-slim.spdx.json
+      - name: Checksums
+        run: (cd dist && sha256sum * > checksums.txt)
+      - uses: softprops/action-gh-release@v3.0.1
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: metadata
+        shell: bash
+        run: echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - id: build
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          file: deployments/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.metadata.outputs.built }}
+            DIRTY=false
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign image digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY}@${DIGEST}"

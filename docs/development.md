@@ -57,6 +57,35 @@ task dev:down
 
 OpenAPI 文档按 `Health`、`Authentication`、`Profile` 和 `Users` 分组。新增接口时必须为 operation 设置现有或职责明确的新 tag，不能让接口回落到 `default`。
 
+### 可选文件模块
+
+文件模块默认关闭。开发时可在本地配置中设置：
+
+```yaml
+modules:
+  file: true
+file:
+  storage_path: var/uploads
+  image_max_bytes: 5242880
+  video_enabled: false
+  video_max_bytes: 104857600
+```
+
+上传接口只接受有效认证用户，按实际读取字节限制大小，并根据文件内容识别类型。客户端文件名和 `Content-Type` 不参与对象 Key 或类型判断。默认支持 JPEG、PNG、GIF 与 WebP，拒绝 SVG；视频需显式启用。`var/uploads` 属于运行数据，不应提交 Git。
+
+### 可选动态配置模块
+
+动态配置模块默认关闭。启用后使用 PostgreSQL `system_configs` 表和 Redis 公共列表缓存：
+
+```yaml
+modules:
+  systemconfig: true
+systemconfig:
+  cache_ttl: 5m
+```
+
+管理 CRUD 要求超级管理员；`GET /api/v1/system-configs/public` 只返回标记为公开的配置。支持 `string`、`integer`、`boolean`、`duration` 和 `string_list`，请求中的 JSON 值必须与 `value_type` 一致。`database.*`、`redis.*`、`auth.*`、`cors.*`、Secret、Token、Cookie 和私钥相关 Key 不允许写入。
+
 `task run`、`task db:init` 会显式加载仓库根目录的 `.env`。直接调用 CLI 时需要同时传入本地配置参数：
 
 ```bash
@@ -90,11 +119,13 @@ task compose:down
 `task compose:up` 会先执行幂等的 `task setup`，是全新克隆后完整环境的一键入口；重复执行不会重复建表。该编排复用本地 `.env` 的随机密码和本地私钥文件，适合开发、验收和小规模自托管；正式生产仍需按部署环境补齐 TLS、备份、监控和恢复策略。修改宿主端口可设置 `GOBA_PORT`。
 PostgreSQL 与 Redis 默认分别发布到宿主机 `5432` 和 `6379`，与本地应用配置保持一致；端口已被占用时，可在 `.env` 同时调整 `GOBA_DATABASE_PORT` 或 `GOBA_REDIS_PORT`。
 
-Linux 和 macOS 上，`task compose:up` 会让 API 容器使用当前用户的 UID/GID，从而在保持本地私钥为 `0600` 的同时允许非 root 进程读取文件型 Secret。直接执行 `docker compose up` 时，应显式设置 `GOBA_CONTAINER_UID=$(id -u)` 和 `GOBA_CONTAINER_GID=$(id -g)`；Windows Docker Desktop 使用镜像默认的非 root 用户。
+Linux 和 macOS 上，`task compose:up` 会让 API 容器使用当前用户的 UID/GID，从而在保持本地私钥为 `0600` 的同时允许非 root 进程读取文件型 Secret。直接执行 `docker compose --profile app up` 时，应显式设置 `GOBA_CONTAINER_UID=$(id -u)` 和 `GOBA_CONTAINER_GID=$(id -g)`；Windows Docker Desktop 使用镜像默认的非 root 用户。
 
 ## Schema 与生成代码
 
 `db/schema` 是 Schema SQL 事实来源，`db/queries` 是查询事实来源。服务启动只检查 PostgreSQL 连接和 Schema 版本，不执行自动迁移。数据库变更必须提供显式 SQL，并由部署方按顺序执行。
+
+当前 Schema 版本为 2。全新空数据库由 `db init` 顺序执行 `000001_initial.sql` 与 `000002_systemconfig.sql`；已有版本 1 数据库必须由部署方显式执行 `db/schema/000002_systemconfig.sql`，应用不会自动升级。
 
 `api/openapi/openapi.yaml` 是 HTTP 契约事实来源。修改 OpenAPI 或 SQL 后执行：
 

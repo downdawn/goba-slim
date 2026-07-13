@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/downdawn/goba-slim/internal/app"
 	"github.com/downdawn/goba-slim/internal/modules/user"
 	"github.com/downdawn/goba-slim/internal/platform/config"
 	"github.com/downdawn/goba-slim/internal/platform/database"
@@ -20,19 +21,20 @@ import (
 )
 
 func TestVersionPrintsBuildInfo(t *testing.T) {
-	oldVersion, oldCommit, oldBuildTime := version.Version, version.Commit, version.BuildTime
+	oldVersion, oldCommit, oldBuildTime, oldDirty := version.Version, version.Commit, version.BuildTime, version.Dirty
 	t.Cleanup(func() {
-		version.Version, version.Commit, version.BuildTime = oldVersion, oldCommit, oldBuildTime
+		version.Version, version.Commit, version.BuildTime, version.Dirty = oldVersion, oldCommit, oldBuildTime, oldDirty
 	})
 	version.Version = "v0.1.0"
 	version.Commit = "abc123"
 	version.BuildTime = "2026-07-11T00:00:00Z"
+	version.Dirty = "false"
 
 	cmd, output := newTestRoot(t)
 	cmd.SetArgs([]string{"version"})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
-	require.Equal(t, "v0.1.0 (commit=abc123, built=2026-07-11T00:00:00Z)\n", output.String())
+	require.Contains(t, output.String(), "v0.1.0 (commit=abc123, built=2026-07-11T00:00:00Z, dirty=false, go=go")
 }
 
 func TestConfigCheckAcceptsValidConfiguration(t *testing.T) {
@@ -152,6 +154,38 @@ func TestUnknownCommandReturnsError(t *testing.T) {
 	cmd.SetArgs([]string{"unknown"})
 
 	require.Error(t, cmd.ExecuteContext(t.Context()))
+}
+
+func TestDoctorPrintsSafeChecksAndReturnsFailure(t *testing.T) {
+	cmd := NewRoot(Dependencies{
+		Load: config.Load,
+		Doctor: func(context.Context, config.Config) app.DiagnosticReport {
+			return app.DiagnosticReport{Checks: []app.DiagnosticCheck{
+				{Name: "auth", OK: true, Message: "Ed25519 密钥可用"},
+				{Name: "postgresql", Message: "PostgreSQL 不可用或 Schema 版本不匹配"},
+			}}
+		},
+	})
+	output := new(bytes.Buffer)
+	cmd.SetOut(output)
+	cmd.SetArgs([]string{"doctor", "--config", testConfigPath(t, "")})
+
+	err := cmd.ExecuteContext(t.Context())
+	require.ErrorContains(t, err, "doctor 检查未通过")
+	require.Contains(t, output.String(), "OK")
+	require.Contains(t, output.String(), "FAIL")
+	require.NotContains(t, output.String(), "password")
+}
+
+func TestModuleListReportsOptionalState(t *testing.T) {
+	cmd, output := newTestRoot(t)
+	cmd.SetArgs([]string{"module", "list", "--config", testConfigPath(t, "modules:\n  file: true\n  systemconfig: false\n")})
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	require.Contains(t, output.String(), "file")
+	require.Contains(t, output.String(), "true")
+	require.Contains(t, output.String(), "systemconfig")
+	require.Contains(t, output.String(), "false")
 }
 
 func newTestRoot(t *testing.T) (*cobra.Command, *bytes.Buffer) {

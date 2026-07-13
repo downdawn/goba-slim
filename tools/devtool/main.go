@@ -11,10 +11,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
 )
 
 const defaultPrivateKeyPath = "configs/auth-private.local.pem"
+
+const usage = "devtool <setup|keygen|public-key|build-time|dirty|binary-path|pgo-binary-path|pgo-profile-exists>"
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
@@ -25,7 +31,7 @@ func main() {
 
 func run(args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("用法: devtool <setup|keygen>")
+		return errors.New("用法: " + usage)
 	}
 	switch args[0] {
 	case "setup":
@@ -68,8 +74,42 @@ func run(args []string, output io.Writer) error {
 		}
 		_, err := fmt.Fprintf(output, "已导出 Ed25519 公钥: %s\n", filepath.ToSlash(*publicPath))
 		return err
+	case "build-time":
+		_, err := fmt.Fprintln(output, time.Now().UTC().Format(time.RFC3339))
+		return err
+	case "dirty":
+		command := exec.Command("git", "status", "--porcelain")
+		value, err := command.Output()
+		if err != nil {
+			return fmt.Errorf("检查 Git 工作区: %w", err)
+		}
+		_, err = fmt.Fprintln(output, strings.TrimSpace(string(value)) != "")
+		return err
+	case "binary-path":
+		path := "bin/goba"
+		if runtime.GOOS == "windows" {
+			path += ".exe"
+		}
+		_, err := fmt.Fprintln(output, path)
+		return err
+	case "pgo-binary-path":
+		path := "bin/goba-pgo"
+		if runtime.GOOS == "windows" {
+			path += ".exe"
+		}
+		_, err := fmt.Fprintln(output, path)
+		return err
+	case "pgo-profile-exists":
+		info, err := os.Stat("default.pgo")
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return errors.New("default.pgo 不是文件")
+		}
+		return nil
 	default:
-		return fmt.Errorf("未知命令 %q，用法: devtool <setup|keygen>", args[0])
+		return fmt.Errorf("未知命令 %q，用法: %s", args[0], usage)
 	}
 }
 

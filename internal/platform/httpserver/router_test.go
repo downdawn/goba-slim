@@ -85,6 +85,58 @@ func TestRouterDoesNotServeDocumentationInProduction(t *testing.T) {
 	}
 }
 
+func TestRouterDoesNotRegisterFileRoutesWhenModuleDisabled(t *testing.T) {
+	router := NewRouter(testOptions(health.NewService(nil)))
+
+	requests := []*http.Request{
+		httptest.NewRequest(http.MethodPost, "/api/v1/files", nil),
+		httptest.NewRequest(http.MethodDelete, "/api/v1/files/0198a1d1-2c3b-7abc-8def-0123456789ab/0198a1d1-2c3b-7abc-8def-1123456789ab.png", nil),
+		httptest.NewRequest(http.MethodGet, "/files/0198a1d1-2c3b-7abc-8def-0123456789ab/0198a1d1-2c3b-7abc-8def-1123456789ab.png", nil),
+	}
+	for _, request := range requests {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		require.Equal(t, http.StatusNotFound, recorder.Code, "%s %s", request.Method, request.URL.Path)
+	}
+}
+
+func TestRouterRegistersFileUploadWhenModuleEnabled(t *testing.T) {
+	options := testOptions(health.NewService(nil))
+	options.Config.Modules.File = true
+	router := NewRouter(options)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/files", nil))
+
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "AUTHENTICATION_FAILED")
+}
+
+func TestRouterDoesNotRegisterSystemConfigRoutesWhenModuleDisabled(t *testing.T) {
+	router := NewRouter(testOptions(health.NewService(nil)))
+	for _, path := range []string{"/api/v1/system-configs", "/api/v1/system-configs/public", "/api/v1/system-configs/feature.banner"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(method, path, nil))
+			require.Equal(t, http.StatusNotFound, recorder.Code, "%s %s", method, path)
+		}
+	}
+}
+
+func TestRouterRegistersSystemConfigRoutesWhenModuleEnabled(t *testing.T) {
+	options := testOptions(health.NewService(nil))
+	options.Config.Modules.SystemConfig = true
+	router := NewRouter(options)
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	require.True(t, registered["GET /api/v1/system-configs/public"])
+	require.True(t, registered["POST /api/v1/system-configs"])
+	require.True(t, registered["PUT /api/v1/system-configs/:key"])
+	require.True(t, registered["DELETE /api/v1/system-configs/:key"])
+}
+
 func TestRouterReportsUnavailableReadiness(t *testing.T) {
 	router := NewRouter(testOptions(health.NewService(map[string]health.Check{
 		"module:test": func(_ context.Context) error { return errors.New("down") },

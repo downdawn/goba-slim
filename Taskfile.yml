@@ -72,8 +72,19 @@ tasks:
 
   build:
     desc: 构建 goba 可执行文件
+    vars:
+      VERSION:
+        sh: git describe --tags --always --dirty
+      COMMIT:
+        sh: git rev-parse HEAD
+      BUILD_TIME:
+        sh: go run ./tools/devtool build-time
+      DIRTY:
+        sh: go run ./tools/devtool dirty
+      OUTPUT:
+        sh: go run ./tools/devtool binary-path
     cmds:
-      - go build -o bin/goba ./cmd/goba
+      - go build -trimpath -ldflags="-X github.com/downdawn/goba-slim/internal/version.Version={{.VERSION}} -X github.com/downdawn/goba-slim/internal/version.Commit={{.COMMIT}} -X github.com/downdawn/goba-slim/internal/version.BuildTime={{.BUILD_TIME}} -X github.com/downdawn/goba-slim/internal/version.Dirty={{.DIRTY}}" -o {{.OUTPUT}} ./cmd/goba
 
   setup:
     desc: 幂等创建缺失的本地配置、随机密码与 Ed25519 私钥
@@ -115,15 +126,31 @@ tasks:
     desc: 一键初始化并启动完整 Compose 环境
     cmds:
       - task: setup
-      - cmd: docker compose up --build --detach --wait
+      - cmd: docker compose --profile app up --build --detach --wait
         platforms: [windows]
-      - cmd: GOBA_CONTAINER_UID="$(id -u)" GOBA_CONTAINER_GID="$(id -g)" docker compose up --build --detach --wait
+      - cmd: GOBA_CONTAINER_UID="$(id -u)" GOBA_CONTAINER_GID="$(id -g)" docker compose --profile app up --build --detach --wait
         platforms: [linux, darwin]
 
   compose:down:
     desc: 停止并删除本地 Compose 服务
     cmds:
       - docker compose down --remove-orphans
+
+  pgo:benchmark:
+    desc: 生成可复现的 CPU Profile 作为 PGO 候选输入
+    cmds:
+      - go test ./internal/modules/auth -run '^$' -bench BenchmarkTokensVerify -cpuprofile default.pgo
+
+  build:pgo:
+    desc: 使用已评审的 default.pgo 构建 goba
+    preconditions:
+      - sh: go run ./tools/devtool pgo-profile-exists
+        msg: 缺少 default.pgo，请先按 docs/performance.md 生成并评审
+    vars:
+      OUTPUT:
+        sh: go run ./tools/devtool pgo-binary-path
+    cmds:
+      - go build -trimpath -pgo=default.pgo -o {{.OUTPUT}} ./cmd/goba
 
   check:
     desc: 执行完整本地验收

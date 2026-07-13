@@ -49,6 +49,16 @@ GOBA_AUTH_VERIFICATION_KEY_FILES=2026-06=/run/secrets/auth_public_2026_06.pem
 
 推荐由部署平台把 Secret 挂载为只读文件。不要把实际 Secret 写入镜像、Compose 文件、仓库或日志。
 
+启用文件模块时，还需要为 `file.storage_path` 提供独立可写持久卷。应用根文件系统仍可保持只读，例如：
+
+```text
+GOBA_MODULES_FILE=true
+GOBA_FILE_STORAGE_PATH=/var/lib/goba/uploads
+GOBA_FILE_IMAGE_MAX_BYTES=5242880
+```
+
+公开文件 URL 不提供访问控制，适合头像、封面和普通业务图片，不用于合同、证件或其他私密附件。需要私有文件时应接入私有对象存储和限时签名 URL，而不是复用公开路由。
+
 仓库 Compose 在 Linux 和 macOS 上通过 `GOBA_CONTAINER_UID`、`GOBA_CONTAINER_GID` 让非 root API 进程与宿主私钥文件所有者对齐；`task compose:up` 会自动设置这两个值。其他部署平台应直接把 Secret 文件的读取权限授予容器运行用户，不应放宽宿主私钥权限。
 
 ## JWT 密钥轮换
@@ -104,7 +114,17 @@ goba db init --yes --config /etc/goba/config.yaml
 
 该命令在当前 Schema 已就绪时直接成功，但会拒绝未知表、缺失表或版本不匹配的数据库。后续 Schema 变更由部署流程按 `db/schema` 中的显式 SQL 执行。常驻 API 容器只检查连接和 Schema 版本，不获得自动修改数据库的职责。
 
+从 Schema 版本 1 升级到版本 2 时，在停止旧版本写入后由受控部署任务执行：
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/schema/000002_systemconfig.sql
+```
+
+执行前应完成备份，并在目标环境验证回滚方案。升级 SQL 创建 `system_configs` 表并记录版本 2；API 启动时只验证版本，不自动执行该文件。
+
 仓库提供的 `task compose:up` 可一行启动 PostgreSQL、Redis、一次性初始化任务和 API，适合开发、验收与小规模自托管。它仍然使用职责独立的多个容器；正式部署应按风险补充持久化备份、TLS、监控和恢复方案。
+
+Compose 中的常驻 API 容器以非 root 用户、`no-new-privileges` 和去除全部 Linux capabilities 运行，文件模块只使用独立数据卷。Docker Desktop 无法将 Compose 的环境变量型 Secret 挂载到只读根文件系统，因此默认 Compose 不设置 `read_only`，以保证 Windows 开箱可用。生产部署应使用镜像支持的 `--read-only --tmpfs /tmp` 策略，并将 Secret 以只读文件和为文件存储提供的独立可写卷挂载。`db-init` 是一次性、受控的 Schema 初始化任务，生产环境应使用部署平台提供的一次性 Job 运行相同命令，并按平台能力收紧其文件系统权限。
 
 ## 健康检查
 

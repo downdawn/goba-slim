@@ -62,14 +62,16 @@ func newConfigPrintCommand(deps Dependencies) *cobra.Command {
 }
 
 type redactedConfig struct {
-	App      redactedAppConfig      `json:"app"`
-	Server   redactedServerConfig   `json:"server"`
-	Database redactedDatabaseConfig `json:"database"`
-	Redis    redactedRedisConfig    `json:"redis"`
-	CORS     redactedCORSConfig     `json:"cors"`
-	Auth     redactedAuthConfig     `json:"auth"`
-	Log      redactedLogConfig      `json:"log"`
-	Modules  redactedModuleConfig   `json:"modules"`
+	App          redactedAppConfig          `json:"app"`
+	Server       redactedServerConfig       `json:"server"`
+	Database     redactedDatabaseConfig     `json:"database"`
+	Redis        redactedRedisConfig        `json:"redis"`
+	CORS         redactedCORSConfig         `json:"cors"`
+	Auth         redactedAuthConfig         `json:"auth"`
+	File         redactedFileConfig         `json:"file"`
+	SystemConfig redactedSystemConfigConfig `json:"systemconfig"`
+	Log          redactedLogConfig          `json:"log"`
+	Modules      redactedModuleConfig       `json:"modules"`
 }
 
 type redactedAppConfig struct {
@@ -142,6 +144,15 @@ type redactedLogConfig struct {
 	Level  string `json:"level"`
 	Format string `json:"format"`
 }
+type redactedFileConfig struct {
+	StoragePath   string `json:"storage_path"`
+	ImageMaxBytes int64  `json:"image_max_bytes"`
+	VideoEnabled  bool   `json:"video_enabled"`
+	VideoMaxBytes int64  `json:"video_max_bytes"`
+}
+type redactedSystemConfigConfig struct {
+	CacheTTL time.Duration `json:"cache_ttl"`
+}
 type redactedModuleConfig struct {
 	File         bool `json:"file"`
 	SystemConfig bool `json:"systemconfig"`
@@ -149,13 +160,15 @@ type redactedModuleConfig struct {
 
 func newRedactedConfig(cfg config.Config) redactedConfig {
 	return redactedConfig{
-		App:      redactedAppConfig{Environment: cfg.App.Environment, Debug: cfg.App.Debug, DocsEnabled: cfg.App.DocsEnabled},
-		Server:   redactedServerConfig{Host: cfg.Server.Host, Port: cfg.Server.Port, HeaderTimeout: cfg.Server.HeaderTimeout, ReadTimeout: cfg.Server.ReadTimeout, WriteTimeout: cfg.Server.WriteTimeout, IdleTimeout: cfg.Server.IdleTimeout, ShutdownTimeout: cfg.Server.ShutdownTimeout, TrustedProxies: cfg.Server.TrustedProxies},
-		Database: redactedDatabaseConfig{Host: cfg.Database.Host, Port: cfg.Database.Port, Name: cfg.Database.Name, User: cfg.Database.User, Password: cfg.Database.Password.String(), PasswordFile: cfg.Database.PasswordFile, SSLMode: cfg.Database.SSLMode, MinConnections: cfg.Database.MinConnections, MaxConnections: cfg.Database.MaxConnections, ConnectTimeout: cfg.Database.ConnectTimeout, HealthTimeout: cfg.Database.HealthTimeout},
-		Redis:    redactedRedisConfig{Host: cfg.Redis.Host, Port: cfg.Redis.Port, Database: cfg.Redis.Database, Username: cfg.Redis.Username, Password: cfg.Redis.Password.String(), PasswordFile: cfg.Redis.PasswordFile, TLS: cfg.Redis.TLS, PoolSize: cfg.Redis.PoolSize, MinIdleConns: cfg.Redis.MinIdleConns, ConnectTimeout: cfg.Redis.ConnectTimeout, ReadTimeout: cfg.Redis.ReadTimeout, WriteTimeout: cfg.Redis.WriteTimeout, HealthTimeout: cfg.Redis.HealthTimeout},
-		CORS:     redactedCORSConfig{AllowOrigins: cfg.CORS.AllowOrigins, AllowMethods: cfg.CORS.AllowMethods, AllowHeaders: cfg.CORS.AllowHeaders, AllowCredentials: cfg.CORS.AllowCredentials},
-		Auth:     redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile, KeyID: cfg.Auth.KeyID, VerificationKeyFiles: cfg.Auth.VerificationKeyFiles, RefreshCookie: cfg.Auth.RefreshCookie, CookieDomain: cfg.Auth.CookieDomain, CookiePath: cfg.Auth.CookiePath, CookieSecure: cfg.Auth.CookieSecure, CookieSameSite: cfg.Auth.CookieSameSite, LoginAttempts: cfg.Auth.LoginAttempts, LoginWindow: cfg.Auth.LoginWindow},
-		Log:      redactedLogConfig{Level: cfg.Log.Level, Format: cfg.Log.Format},
-		Modules:  redactedModuleConfig{File: cfg.Modules.File, SystemConfig: cfg.Modules.SystemConfig},
+		App:          redactedAppConfig{Environment: cfg.App.Environment, Debug: cfg.App.Debug, DocsEnabled: cfg.App.DocsEnabled},
+		Server:       redactedServerConfig{Host: cfg.Server.Host, Port: cfg.Server.Port, HeaderTimeout: cfg.Server.HeaderTimeout, ReadTimeout: cfg.Server.ReadTimeout, WriteTimeout: cfg.Server.WriteTimeout, IdleTimeout: cfg.Server.IdleTimeout, ShutdownTimeout: cfg.Server.ShutdownTimeout, TrustedProxies: cfg.Server.TrustedProxies},
+		Database:     redactedDatabaseConfig{Host: cfg.Database.Host, Port: cfg.Database.Port, Name: cfg.Database.Name, User: cfg.Database.User, Password: cfg.Database.Password.String(), PasswordFile: cfg.Database.PasswordFile, SSLMode: cfg.Database.SSLMode, MinConnections: cfg.Database.MinConnections, MaxConnections: cfg.Database.MaxConnections, ConnectTimeout: cfg.Database.ConnectTimeout, HealthTimeout: cfg.Database.HealthTimeout},
+		Redis:        redactedRedisConfig{Host: cfg.Redis.Host, Port: cfg.Redis.Port, Database: cfg.Redis.Database, Username: cfg.Redis.Username, Password: cfg.Redis.Password.String(), PasswordFile: cfg.Redis.PasswordFile, TLS: cfg.Redis.TLS, PoolSize: cfg.Redis.PoolSize, MinIdleConns: cfg.Redis.MinIdleConns, ConnectTimeout: cfg.Redis.ConnectTimeout, ReadTimeout: cfg.Redis.ReadTimeout, WriteTimeout: cfg.Redis.WriteTimeout, HealthTimeout: cfg.Redis.HealthTimeout},
+		CORS:         redactedCORSConfig{AllowOrigins: cfg.CORS.AllowOrigins, AllowMethods: cfg.CORS.AllowMethods, AllowHeaders: cfg.CORS.AllowHeaders, AllowCredentials: cfg.CORS.AllowCredentials},
+		Auth:         redactedAuthConfig{Issuer: cfg.Auth.Issuer, Audience: cfg.Auth.Audience, AccessTokenTTL: cfg.Auth.AccessTokenTTL, RefreshTokenTTL: cfg.Auth.RefreshTokenTTL, PrivateKey: cfg.Auth.PrivateKey.String(), PrivateKeyFile: cfg.Auth.PrivateKeyFile, KeyID: cfg.Auth.KeyID, VerificationKeyFiles: cfg.Auth.VerificationKeyFiles, RefreshCookie: cfg.Auth.RefreshCookie, CookieDomain: cfg.Auth.CookieDomain, CookiePath: cfg.Auth.CookiePath, CookieSecure: cfg.Auth.CookieSecure, CookieSameSite: cfg.Auth.CookieSameSite, LoginAttempts: cfg.Auth.LoginAttempts, LoginWindow: cfg.Auth.LoginWindow},
+		File:         redactedFileConfig{StoragePath: cfg.File.StoragePath, ImageMaxBytes: cfg.File.ImageMaxBytes, VideoEnabled: cfg.File.VideoEnabled, VideoMaxBytes: cfg.File.VideoMaxBytes},
+		SystemConfig: redactedSystemConfigConfig{CacheTTL: cfg.SystemConfig.CacheTTL},
+		Log:          redactedLogConfig{Level: cfg.Log.Level, Format: cfg.Log.Format},
+		Modules:      redactedModuleConfig{File: cfg.Modules.File, SystemConfig: cfg.Modules.SystemConfig},
 	}
 }

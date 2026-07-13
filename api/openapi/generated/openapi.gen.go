@@ -75,6 +75,33 @@ func (e SetUserStatusRequestStatus) Valid() bool {
 	}
 }
 
+// Defines values for SystemConfigValueType.
+const (
+	Boolean    SystemConfigValueType = "boolean"
+	Duration   SystemConfigValueType = "duration"
+	Integer    SystemConfigValueType = "integer"
+	String     SystemConfigValueType = "string"
+	StringList SystemConfigValueType = "string_list"
+)
+
+// Valid indicates whether the value is a known member of the SystemConfigValueType enum.
+func (e SystemConfigValueType) Valid() bool {
+	switch e {
+	case Boolean:
+		return true
+	case Duration:
+		return true
+	case Integer:
+		return true
+	case String:
+		return true
+	case StringList:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TokenResponseTokenType.
 const (
 	Bearer TokenResponseTokenType = "Bearer"
@@ -146,6 +173,15 @@ type CheckStatus struct {
 // CheckStatusStatus defines model for CheckStatus.Status.
 type CheckStatusStatus string
 
+// CreateSystemConfigRequest defines model for CreateSystemConfigRequest.
+type CreateSystemConfigRequest struct {
+	Description *string               `json:"description,omitempty"`
+	IsPublic    bool                  `json:"is_public"`
+	Key         string                `json:"key"`
+	Value       interface{}           `json:"value"`
+	ValueType   SystemConfigValueType `json:"value_type"`
+}
+
 // CreateUserRequest defines model for CreateUserRequest.
 type CreateUserRequest struct {
 	AllowMultipleSessions *bool                `json:"allow_multiple_sessions,omitempty"`
@@ -162,6 +198,14 @@ type Error struct {
 	Code      string  `json:"code"`
 	Message   string  `json:"message"`
 	RequestId *string `json:"request_id,omitempty"`
+}
+
+// FileObject defines model for FileObject.
+type FileObject struct {
+	ContentType string `json:"content_type"`
+	Key         string `json:"key"`
+	Size        int64  `json:"size"`
+	Url         string `json:"url"`
 }
 
 // LivenessResponse defines model for LivenessResponse.
@@ -194,6 +238,18 @@ type PasswordPolicy struct {
 	RequireLetter bool `json:"require_letter"`
 }
 
+// PublicSystemConfig defines model for PublicSystemConfig.
+type PublicSystemConfig struct {
+	Key       string                `json:"key"`
+	Value     interface{}           `json:"value"`
+	ValueType SystemConfigValueType `json:"value_type"`
+}
+
+// PublicSystemConfigList defines model for PublicSystemConfigList.
+type PublicSystemConfigList struct {
+	Items []PublicSystemConfig `json:"items"`
+}
+
 // ReadinessResponse defines model for ReadinessResponse.
 type ReadinessResponse struct {
 	Checks map[string]CheckStatus `json:"checks"`
@@ -213,6 +269,25 @@ type SetUserStatusRequest struct {
 // SetUserStatusRequestStatus defines model for SetUserStatusRequest.Status.
 type SetUserStatusRequestStatus string
 
+// SystemConfig defines model for SystemConfig.
+type SystemConfig struct {
+	CreatedAt   time.Time             `json:"created_at"`
+	Description string                `json:"description"`
+	IsPublic    bool                  `json:"is_public"`
+	Key         string                `json:"key"`
+	UpdatedAt   time.Time             `json:"updated_at"`
+	Value       interface{}           `json:"value"`
+	ValueType   SystemConfigValueType `json:"value_type"`
+}
+
+// SystemConfigList defines model for SystemConfigList.
+type SystemConfigList struct {
+	Items []SystemConfig `json:"items"`
+}
+
+// SystemConfigValueType defines model for SystemConfigValueType.
+type SystemConfigValueType string
+
 // TokenResponse defines model for TokenResponse.
 type TokenResponse struct {
 	AccessToken string                 `json:"access_token"`
@@ -224,6 +299,14 @@ type TokenResponse struct {
 
 // TokenResponseTokenType defines model for TokenResponse.TokenType.
 type TokenResponseTokenType string
+
+// UpdateSystemConfigRequest defines model for UpdateSystemConfigRequest.
+type UpdateSystemConfigRequest struct {
+	Description *string               `json:"description,omitempty"`
+	IsPublic    bool                  `json:"is_public"`
+	Value       interface{}           `json:"value"`
+	ValueType   SystemConfigValueType `json:"value_type"`
+}
 
 // UpdateUserRequest defines model for UpdateUserRequest.
 type UpdateUserRequest struct {
@@ -262,6 +345,11 @@ type ErrorResponse = Error
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
 
+// UploadFileMultipartBody defines parameters for UploadFile.
+type UploadFileMultipartBody struct {
+	File openapi_types.File `json:"file"`
+}
+
 // ListUsersParams defines parameters for ListUsers.
 type ListUsersParams struct {
 	Page     *int                   `form:"page,omitempty" json:"page,omitempty"`
@@ -276,8 +364,17 @@ type ListUsersParamsStatus string
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
+// UploadFileMultipartRequestBody defines body for UploadFile for multipart/form-data ContentType.
+type UploadFileMultipartRequestBody UploadFileMultipartBody
+
 // ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
 type ChangePasswordJSONRequestBody = ChangePasswordRequest
+
+// CreateSystemConfigJSONRequestBody defines body for CreateSystemConfig for application/json ContentType.
+type CreateSystemConfigJSONRequestBody = CreateSystemConfigRequest
+
+// UpdateSystemConfigJSONRequestBody defines body for UpdateSystemConfig for application/json ContentType.
+type UpdateSystemConfigJSONRequestBody = UpdateSystemConfigRequest
 
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUserRequest
@@ -306,11 +403,35 @@ type ServerInterface interface {
 	// (POST /api/v1/auth/refresh)
 	RefreshToken(c *gin.Context)
 
+	// (POST /api/v1/files)
+	UploadFile(c *gin.Context)
+
+	// (DELETE /api/v1/files/{ownerId}/{fileName})
+	DeleteFile(c *gin.Context, ownerId openapi_types.UUID, fileName string)
+
 	// (GET /api/v1/me)
 	GetCurrentUser(c *gin.Context)
 
 	// (PUT /api/v1/me/password)
 	ChangePassword(c *gin.Context)
+
+	// (GET /api/v1/system-configs)
+	ListSystemConfigs(c *gin.Context)
+
+	// (POST /api/v1/system-configs)
+	CreateSystemConfig(c *gin.Context)
+
+	// (GET /api/v1/system-configs/public)
+	ListPublicSystemConfigs(c *gin.Context)
+
+	// (DELETE /api/v1/system-configs/{key})
+	DeleteSystemConfig(c *gin.Context, key string)
+
+	// (GET /api/v1/system-configs/{key})
+	GetSystemConfig(c *gin.Context, key string)
+
+	// (PUT /api/v1/system-configs/{key})
+	UpdateSystemConfig(c *gin.Context, key string)
 
 	// (GET /api/v1/users)
 	ListUsers(c *gin.Context, params ListUsersParams)
@@ -329,6 +450,9 @@ type ServerInterface interface {
 
 	// (PUT /api/v1/users/{userId}/status)
 	SetUserStatus(c *gin.Context, userId openapi_types.UUID)
+
+	// (GET /files/{ownerId}/{fileName})
+	GetFile(c *gin.Context, ownerId openapi_types.UUID, fileName string)
 
 	// (GET /livez)
 	GetLiveness(c *gin.Context)
@@ -400,6 +524,57 @@ func (siw *ServerInterfaceWrapper) RefreshToken(c *gin.Context) {
 	siw.Handler.RefreshToken(c)
 }
 
+// UploadFile operation middleware
+func (siw *ServerInterfaceWrapper) UploadFile(c *gin.Context) {
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UploadFile(c)
+}
+
+// DeleteFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteFile(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ownerId" -------------
+	var ownerId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ownerId", c.Param("ownerId"), &ownerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter ownerId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "fileName" -------------
+	var fileName string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "fileName", c.Param("fileName"), &fileName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter fileName: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeleteFile(c, ownerId, fileName)
+}
+
 // GetCurrentUser operation middleware
 func (siw *ServerInterfaceWrapper) GetCurrentUser(c *gin.Context) {
 
@@ -428,6 +603,130 @@ func (siw *ServerInterfaceWrapper) ChangePassword(c *gin.Context) {
 	}
 
 	siw.Handler.ChangePassword(c)
+}
+
+// ListSystemConfigs operation middleware
+func (siw *ServerInterfaceWrapper) ListSystemConfigs(c *gin.Context) {
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListSystemConfigs(c)
+}
+
+// CreateSystemConfig operation middleware
+func (siw *ServerInterfaceWrapper) CreateSystemConfig(c *gin.Context) {
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateSystemConfig(c)
+}
+
+// ListPublicSystemConfigs operation middleware
+func (siw *ServerInterfaceWrapper) ListPublicSystemConfigs(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListPublicSystemConfigs(c)
+}
+
+// DeleteSystemConfig operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSystemConfig(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", c.Param("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeleteSystemConfig(c, key)
+}
+
+// GetSystemConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetSystemConfig(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", c.Param("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetSystemConfig(c, key)
+}
+
+// UpdateSystemConfig operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSystemConfig(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key" -------------
+	var key string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key", c.Param("key"), &key, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(string(BearerAuthScopes), []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateSystemConfig(c, key)
 }
 
 // ListUsers operation middleware
@@ -606,6 +905,40 @@ func (siw *ServerInterfaceWrapper) SetUserStatus(c *gin.Context) {
 	siw.Handler.SetUserStatus(c, userId)
 }
 
+// GetFile operation middleware
+func (siw *ServerInterfaceWrapper) GetFile(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ownerId" -------------
+	var ownerId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ownerId", c.Param("ownerId"), &ownerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter ownerId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "fileName" -------------
+	var fileName string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "fileName", c.Param("fileName"), &fileName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter fileName: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetFile(c, ownerId, fileName)
+}
+
 // GetLiveness operation middleware
 func (siw *ServerInterfaceWrapper) GetLiveness(c *gin.Context) {
 
@@ -663,14 +996,23 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/api/v1/auth/logout", wrapper.Logout)
 	router.GET(options.BaseURL+"/api/v1/auth/password-policy", wrapper.GetPasswordPolicy)
 	router.POST(options.BaseURL+"/api/v1/auth/refresh", wrapper.RefreshToken)
+	router.POST(options.BaseURL+"/api/v1/files", wrapper.UploadFile)
+	router.DELETE(options.BaseURL+"/api/v1/files/:ownerId/:fileName", wrapper.DeleteFile)
 	router.GET(options.BaseURL+"/api/v1/me", wrapper.GetCurrentUser)
 	router.PUT(options.BaseURL+"/api/v1/me/password", wrapper.ChangePassword)
+	router.GET(options.BaseURL+"/api/v1/system-configs", wrapper.ListSystemConfigs)
+	router.POST(options.BaseURL+"/api/v1/system-configs", wrapper.CreateSystemConfig)
+	router.GET(options.BaseURL+"/api/v1/system-configs/public", wrapper.ListPublicSystemConfigs)
+	router.DELETE(options.BaseURL+"/api/v1/system-configs/:key", wrapper.DeleteSystemConfig)
+	router.GET(options.BaseURL+"/api/v1/system-configs/:key", wrapper.GetSystemConfig)
+	router.PUT(options.BaseURL+"/api/v1/system-configs/:key", wrapper.UpdateSystemConfig)
 	router.GET(options.BaseURL+"/api/v1/users", wrapper.ListUsers)
 	router.POST(options.BaseURL+"/api/v1/users", wrapper.CreateUser)
 	router.DELETE(options.BaseURL+"/api/v1/users/:userId", wrapper.ArchiveUser)
 	router.PATCH(options.BaseURL+"/api/v1/users/:userId", wrapper.UpdateUser)
 	router.PUT(options.BaseURL+"/api/v1/users/:userId/password", wrapper.ResetUserPassword)
 	router.PUT(options.BaseURL+"/api/v1/users/:userId/status", wrapper.SetUserStatus)
+	router.GET(options.BaseURL+"/files/:ownerId/:fileName", wrapper.GetFile)
 	router.GET(options.BaseURL+"/livez", wrapper.GetLiveness)
 	router.GET(options.BaseURL+"/readyz", wrapper.GetReadiness)
 }
@@ -680,36 +1022,49 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"7Sa3OtudfwIAAP//",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

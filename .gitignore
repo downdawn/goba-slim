@@ -18,11 +18,14 @@
 
 # Go 构建与测试产物
 /bin/
+/var/
+/default.pgo
 /dist/
 /coverage.out
 *.coverprofile
 .task/
 *.test
+*.test.exe
 *.prof
 
 # 编辑器与系统文件

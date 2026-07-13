@@ -139,6 +139,11 @@ func TestLoadAppliesEnvironmentOverridesForAllConfigurationSections(t *testing.T
 	t.Setenv("GOBA_LOG_FORMAT", "text")
 	t.Setenv("GOBA_MODULES_FILE", "true")
 	t.Setenv("GOBA_MODULES_SYSTEMCONFIG", "true")
+	t.Setenv("GOBA_FILE_STORAGE_PATH", "data/files")
+	t.Setenv("GOBA_FILE_IMAGE_MAX_BYTES", "1048576")
+	t.Setenv("GOBA_FILE_VIDEO_ENABLED", "true")
+	t.Setenv("GOBA_FILE_VIDEO_MAX_BYTES", "2097152")
+	t.Setenv("GOBA_SYSTEMCONFIG_CACHE_TTL", "10m")
 
 	cfg, err := Load(t.Context(), Options{EnvironmentPrefix: "GOBA_"})
 
@@ -164,6 +169,11 @@ func TestLoadAppliesEnvironmentOverridesForAllConfigurationSections(t *testing.T
 	require.Equal(t, "text", cfg.Log.Format)
 	require.True(t, cfg.Modules.File)
 	require.True(t, cfg.Modules.SystemConfig)
+	require.Equal(t, "data/files", cfg.File.StoragePath)
+	require.Equal(t, int64(1048576), cfg.File.ImageMaxBytes)
+	require.True(t, cfg.File.VideoEnabled)
+	require.Equal(t, int64(2097152), cfg.File.VideoMaxBytes)
+	require.Equal(t, 10*time.Minute, cfg.SystemConfig.CacheTTL)
 }
 
 func TestValidateRejectsUnsafeConfigurations(t *testing.T) {
@@ -186,6 +196,9 @@ func TestValidateRejectsUnsafeConfigurations(t *testing.T) {
 		}, field: "database.ssl_mode"},
 		{name: "invalid database pool", mutate: func(cfg *Config) { cfg.Database.MaxConnections = 0 }, field: "database"},
 		{name: "invalid redis pool", mutate: func(cfg *Config) { cfg.Redis.PoolSize = 0 }, field: "redis"},
+		{name: "empty file path", mutate: func(cfg *Config) { cfg.File.StoragePath = "" }, field: "file.storage_path"},
+		{name: "invalid image limit", mutate: func(cfg *Config) { cfg.File.ImageMaxBytes = 0 }, field: "file.image_max_bytes"},
+		{name: "invalid system config cache TTL", mutate: func(cfg *Config) { cfg.SystemConfig.CacheTTL = 0 }, field: "systemconfig.cache_ttl"},
 	}
 
 	for _, test := range tests {

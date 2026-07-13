@@ -1,12 +1,17 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/downdawn/goba-slim/api/openapi/generated"
 	"github.com/downdawn/goba-slim/internal/modules/auth"
+	filemodule "github.com/downdawn/goba-slim/internal/modules/file"
+	"github.com/downdawn/goba-slim/internal/modules/systemconfig"
 	"github.com/downdawn/goba-slim/internal/modules/user"
 	"github.com/downdawn/goba-slim/internal/platform/config"
 	"github.com/downdawn/goba-slim/internal/platform/health"
@@ -17,23 +22,238 @@ import (
 
 // Handler 实现 OpenAPI 定义的 HTTP 处理器。
 type Handler struct {
-	health *health.Service
-	auth   *auth.Service
-	users  *user.Service
-	config config.AuthConfig
-	cors   config.CORSConfig
+	health        *health.Service
+	auth          *auth.Service
+	files         *filemodule.Service
+	systemConfigs *systemconfig.Service
+	users         *user.Service
+	config        config.AuthConfig
+	cors          config.CORSConfig
 }
 
 type HandlerOptions struct {
-	Health     *health.Service
-	Auth       *auth.Service
-	Users      *user.Service
-	AuthConfig config.AuthConfig
-	CORS       config.CORSConfig
+	Health        *health.Service
+	Auth          *auth.Service
+	Files         *filemodule.Service
+	SystemConfigs *systemconfig.Service
+	Users         *user.Service
+	AuthConfig    config.AuthConfig
+	CORS          config.CORSConfig
 }
 
 func NewHandler(options HandlerOptions) *Handler {
-	return &Handler{health: options.Health, auth: options.Auth, users: options.Users, config: options.AuthConfig, cors: options.CORS}
+	return &Handler{health: options.Health, auth: options.Auth, files: options.Files, systemConfigs: options.SystemConfigs, users: options.Users, config: options.AuthConfig, cors: options.CORS}
+}
+
+func (h *Handler) ListPublicSystemConfigs(ctx *gin.Context) {
+	items, err := h.systemConfigs.ListPublic(ctx.Request.Context())
+	if err != nil {
+		WriteError(ctx, systemConfigHTTPError(err))
+		return
+	}
+	response := generated.PublicSystemConfigList{Items: make([]generated.PublicSystemConfig, 0, len(items))}
+	for _, item := range items {
+		value, decodeErr := decodeSystemConfigValue(item.Value)
+		if decodeErr != nil {
+			WriteError(ctx, decodeErr)
+			return
+		}
+		response.Items = append(response.Items, generated.PublicSystemConfig{Key: item.Key, Value: value, ValueType: generated.SystemConfigValueType(item.ValueType)})
+	}
+	ctx.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) ListSystemConfigs(ctx *gin.Context) {
+	if _, err := h.superuser(ctx); err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	items, err := h.systemConfigs.List(ctx.Request.Context())
+	if err != nil {
+		WriteError(ctx, systemConfigHTTPError(err))
+		return
+	}
+	response := generated.SystemConfigList{Items: make([]generated.SystemConfig, 0, len(items))}
+	for _, item := range items {
+		mapped, mapErr := systemConfigResponse(item)
+		if mapErr != nil {
+			WriteError(ctx, mapErr)
+			return
+		}
+		response.Items = append(response.Items, mapped)
+	}
+	ctx.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) GetSystemConfig(ctx *gin.Context, key string) {
+	if _, err := h.superuser(ctx); err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	item, err := h.systemConfigs.Get(ctx.Request.Context(), key)
+	if err != nil {
+		WriteError(ctx, systemConfigHTTPError(err))
+		return
+	}
+	response, err := systemConfigResponse(item)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) CreateSystemConfig(ctx *gin.Context) {
+	if _, err := h.superuser(ctx); err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	var request systemConfigRequest
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		WriteError(ctx, systemConfigHTTPError(systemconfig.ErrInvalidInput))
+		return
+	}
+	if request.IsPublic == nil {
+		WriteError(ctx, systemConfigHTTPError(systemconfig.ErrInvalidInput))
+		return
+	}
+	input, err := systemConfigInput(request.Key, request.Value, request.ValueType, *request.IsPublic, request.Description)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	item, err := h.systemConfigs.Create(ctx.Request.Context(), input)
+	if err != nil {
+		WriteError(ctx, systemConfigHTTPError(err))
+		return
+	}
+	response, err := systemConfigResponse(item)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusCreated, response)
+}
+
+func (h *Handler) UpdateSystemConfig(ctx *gin.Context, key string) {
+	if _, err := h.superuser(ctx); err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	var request systemConfigRequest
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		WriteError(ctx, systemConfigHTTPError(systemconfig.ErrInvalidInput))
+		return
+	}
+	if request.IsPublic == nil {
+		WriteError(ctx, systemConfigHTTPError(systemconfig.ErrInvalidInput))
+		return
+	}
+	input, err := systemConfigInput(key, request.Value, request.ValueType, *request.IsPublic, request.Description)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	item, err := h.systemConfigs.Update(ctx.Request.Context(), key, input)
+	if err != nil {
+		WriteError(ctx, systemConfigHTTPError(err))
+		return
+	}
+	response, err := systemConfigResponse(item)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	ctx.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) DeleteSystemConfig(ctx *gin.Context, key string) {
+	if _, err := h.superuser(ctx); err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	if err := h.systemConfigs.Delete(ctx.Request.Context(), key); err != nil {
+		WriteError(ctx, systemConfigHTTPError(err))
+		return
+	}
+	ctx.Status(http.StatusNoContent)
+}
+
+func (h *Handler) UploadFile(ctx *gin.Context) {
+	identity, err := h.identity(ctx)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	if h.files == nil {
+		WriteError(ctx, fileHTTPError(filemodule.ErrUnavailable))
+		return
+	}
+	reader, err := ctx.Request.MultipartReader()
+	if err != nil {
+		WriteError(ctx, fileHTTPError(filemodule.ErrInvalidFile))
+		return
+	}
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			WriteError(ctx, fileHTTPError(filemodule.ErrInvalidFile))
+			return
+		}
+		if nextErr != nil {
+			WriteError(ctx, fileHTTPError(nextErr))
+			return
+		}
+		if part.FormName() != "file" || part.FileName() == "" {
+			_, _ = io.Copy(io.Discard, part)
+			_ = part.Close()
+			continue
+		}
+		uploaded, uploadErr := h.files.Upload(ctx.Request.Context(), identity.User.ID, part)
+		_ = part.Close()
+		if uploadErr != nil {
+			WriteError(ctx, fileHTTPError(uploadErr))
+			return
+		}
+		ctx.JSON(http.StatusCreated, generated.FileObject{
+			Key: uploaded.Key.String(), Url: uploaded.URL(), ContentType: uploaded.ContentType, Size: uploaded.Size,
+		})
+		return
+	}
+}
+
+func (h *Handler) GetFile(ctx *gin.Context, ownerID openapi_types.UUID, fileName string) {
+	if h.files == nil {
+		WriteError(ctx, fileHTTPError(filemodule.ErrNotFound))
+		return
+	}
+	uploaded, object, err := h.files.Open(ctx.Request.Context(), ownerID.String()+"/"+fileName)
+	if err != nil {
+		WriteError(ctx, fileHTTPError(err))
+		return
+	}
+	defer func() { _ = object.Content.Close() }()
+	ctx.Header("Cache-Control", "public, max-age=31536000, immutable")
+	ctx.Header("Content-Type", uploaded.ContentType)
+	http.ServeContent(ctx.Writer, ctx.Request, fileName, object.ModifiedTime, object.Content)
+}
+
+func (h *Handler) DeleteFile(ctx *gin.Context, ownerID openapi_types.UUID, fileName string) {
+	identity, err := h.identity(ctx)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	if h.files == nil {
+		WriteError(ctx, fileHTTPError(filemodule.ErrNotFound))
+		return
+	}
+	err = h.files.Delete(ctx.Request.Context(), identity.User.ID, identity.User.IsSuperuser, ownerID.String()+"/"+fileName)
+	if err != nil {
+		WriteError(ctx, fileHTTPError(err))
+		return
+	}
+	ctx.Status(http.StatusNoContent)
 }
 
 func (h *Handler) Login(ctx *gin.Context) {
@@ -377,6 +597,77 @@ func userHTTPError(err error) error {
 		return apperror.New("USER_CONFLICT", "error.user_conflict", "用户状态冲突", http.StatusConflict, err)
 	}
 	return err
+}
+
+func fileHTTPError(err error) error {
+	var maxBytesError *http.MaxBytesError
+	switch {
+	case errors.Is(err, filemodule.ErrInvalidFile):
+		return apperror.Validation("FILE_INVALID", "error.file_invalid", "文件无效", err)
+	case errors.Is(err, filemodule.ErrInvalidKey):
+		return apperror.Validation("FILE_KEY_INVALID", "error.file_key_invalid", "文件 Key 无效", err)
+	case errors.Is(err, filemodule.ErrTypeNotAllowed):
+		return apperror.New("FILE_TYPE_NOT_ALLOWED", "error.file_type_not_allowed", "文件类型不受支持", http.StatusUnsupportedMediaType, err)
+	case errors.Is(err, filemodule.ErrTooLarge), errors.As(err, &maxBytesError):
+		return apperror.New("FILE_TOO_LARGE", "error.file_too_large", "文件超过大小限制", http.StatusRequestEntityTooLarge, err)
+	case errors.Is(err, filemodule.ErrNotFound):
+		return apperror.NotFound("FILE_NOT_FOUND", "error.file_not_found", "文件不存在", err)
+	case errors.Is(err, filemodule.ErrForbidden):
+		return apperror.New("FILE_DELETE_FORBIDDEN", "error.file_delete_forbidden", "无权删除该文件", http.StatusForbidden, err)
+	case errors.Is(err, filemodule.ErrUnavailable):
+		return apperror.New("FILE_STORAGE_UNAVAILABLE", "error.file_storage_unavailable", "文件存储暂时不可用", http.StatusServiceUnavailable, err)
+	default:
+		return err
+	}
+}
+
+func systemConfigHTTPError(err error) error {
+	switch {
+	case errors.Is(err, systemconfig.ErrInvalidType):
+		return apperror.Validation("SYSTEM_CONFIG_INVALID_TYPE", "error.system_config_invalid_type", "动态配置值与类型不匹配", err)
+	case errors.Is(err, systemconfig.ErrSensitiveKey):
+		return apperror.New("SYSTEM_CONFIG_SENSITIVE_KEY", "error.system_config_sensitive_key", "该配置键属于启动或安全边界", http.StatusForbidden, err)
+	case errors.Is(err, systemconfig.ErrInvalidInput):
+		return apperror.Validation("SYSTEM_CONFIG_INVALID", "error.system_config_invalid", "动态配置参数无效", err)
+	case errors.Is(err, systemconfig.ErrNotFound):
+		return apperror.NotFound("SYSTEM_CONFIG_NOT_FOUND", "error.system_config_not_found", "动态配置不存在", err)
+	case errors.Is(err, systemconfig.ErrConflict):
+		return apperror.New("SYSTEM_CONFIG_CONFLICT", "error.system_config_conflict", "动态配置键已存在", http.StatusConflict, err)
+	case errors.Is(err, systemconfig.ErrPostCommit):
+		return apperror.New("SYSTEM_CONFIG_COMMITTED_WITH_CACHE_ERROR", "error.system_config_committed_with_cache_error", "配置已保存，但缓存刷新失败", http.StatusServiceUnavailable, err)
+	default:
+		return err
+	}
+}
+
+type systemConfigRequest struct {
+	Key         string                          `json:"key"`
+	Value       json.RawMessage                 `json:"value" binding:"required"`
+	ValueType   generated.SystemConfigValueType `json:"value_type" binding:"required"`
+	IsPublic    *bool                           `json:"is_public" binding:"required"`
+	Description *string                         `json:"description"`
+}
+
+func systemConfigInput(key string, value json.RawMessage, valueType generated.SystemConfigValueType, public bool, description *string) (systemconfig.Input, error) {
+	input := systemconfig.Input{Key: key, Value: append(json.RawMessage(nil), value...), ValueType: systemconfig.ValueType(valueType), IsPublic: public}
+	if description != nil {
+		input.Description = *description
+	}
+	return input, nil
+}
+
+func systemConfigResponse(item systemconfig.Config) (generated.SystemConfig, error) {
+	if !json.Valid(item.Value) {
+		return generated.SystemConfig{}, fmt.Errorf("解析动态配置值失败")
+	}
+	return generated.SystemConfig{Key: item.Key, Value: json.RawMessage(item.Value), ValueType: generated.SystemConfigValueType(item.ValueType), IsPublic: item.IsPublic, Description: item.Description, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}, nil
+}
+
+func decodeSystemConfigValue(raw json.RawMessage) (any, error) {
+	if !json.Valid(raw) {
+		return nil, fmt.Errorf("解析动态配置值失败")
+	}
+	return json.RawMessage(raw), nil
 }
 
 // GetLiveness 返回不访问外部依赖的进程存活状态。

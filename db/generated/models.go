@@ -15,6 +15,16 @@ type SchemaMigration struct {
 	AppliedAt pgtype.Timestamptz
 }
 
+type SystemConfig struct {
+	Key         string
+	Value       []byte
+	ValueType   string
+	IsPublic    bool
+	Description string
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type User struct {
 	ID                    uuid.UUID
 	Username              string

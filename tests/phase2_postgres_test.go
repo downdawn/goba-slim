@@ -48,10 +48,10 @@ func TestPhase2PostgreSQLWorkflow(t *testing.T) {
 
 	pool, err = database.Open(t.Context(), cfg.Database)
 	require.NoError(t, err)
-	_, err = pool.Exec(t.Context(), "UPDATE schema_migrations SET version = 0")
+	_, err = pool.Exec(t.Context(), "UPDATE schema_migrations SET version = 0 WHERE version = 2")
 	require.NoError(t, err)
 	require.ErrorIs(t, database.Initialize(t.Context(), cfg.Database), database.ErrSchemaMismatch)
-	_, err = pool.Exec(t.Context(), "UPDATE schema_migrations SET version = 1")
+	_, err = pool.Exec(t.Context(), "UPDATE schema_migrations SET version = 2 WHERE version = 0")
 	require.NoError(t, err)
 	pool.Close()
 

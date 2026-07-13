@@ -34,6 +34,7 @@ services:
     init: true
 
   goba:
+    profiles: [app]
     build:
       context: .
       dockerfile: deployments/Dockerfile
@@ -47,6 +48,7 @@ services:
       GOBA_REDIS_HOST: redis
       GOBA_REDIS_PASSWORD_FILE: /run/secrets/redis_password
       GOBA_AUTH_PRIVATE_KEY_FILE: /run/secrets/auth_private_key
+      GOBA_FILE_STORAGE_PATH: /var/lib/goba/uploads
     secrets:
       - database_password
       - redis_password
@@ -61,6 +63,9 @@ services:
         source: ./configs/config.example.yaml
         target: /etc/goba/config.yaml
         read_only: true
+      - type: volume
+        source: file_data
+        target: /var/lib/goba/uploads
     command: ["serve", "--config", "/etc/goba/config.yaml"]
     healthcheck:
       test: ["CMD", "/goba", "db", "status", "--config", "/etc/goba/config.yaml"]
@@ -68,9 +73,15 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
-    init: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   db-init:
+    profiles: [app]
     build:
       context: .
       dockerfile: deployments/Dockerfile
@@ -89,6 +100,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
 secrets:
   database_password:
@@ -100,3 +117,4 @@ secrets:
 
 volumes:
   postgres_data:
+  file_data:

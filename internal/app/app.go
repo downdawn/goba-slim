@@ -6,6 +6,8 @@ import (
 
 	"github.com/downdawn/goba-slim/internal/module"
 	"github.com/downdawn/goba-slim/internal/modules/auth"
+	filemodule "github.com/downdawn/goba-slim/internal/modules/file"
+	"github.com/downdawn/goba-slim/internal/modules/systemconfig"
 	"github.com/downdawn/goba-slim/internal/modules/user"
 )
 
@@ -20,12 +22,14 @@ type App struct {
 }
 
 type buildOptions struct {
-	modules        []module.Module
-	coreModules    []module.Module
-	coreModulesSet bool
-	authService    *auth.Service
-	userService    *user.Service
-	server         server
+	modules             []module.Module
+	coreModules         []module.Module
+	coreModulesSet      bool
+	authService         *auth.Service
+	fileService         *filemodule.Service
+	systemConfigService *systemconfig.Service
+	userService         *user.Service
+	server              server
 }
 
 // Option 定义构建 App 时可选的显式依赖。

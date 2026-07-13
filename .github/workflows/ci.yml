@@ -5,6 +5,14 @@ on:
   pull_request:
 
 jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3.0.0
+
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -60,14 +68,16 @@ jobs:
             trap - EXIT
             if (( status != 0 )); then
               docker compose ps --all || true
-              docker compose logs --no-color --timestamps goba db-init postgres redis || true
+              docker compose --profile app logs --no-color --timestamps goba db-init postgres redis || true
+              docker logs goba-readonly-check || true
             fi
+            docker rm --force goba-readonly-check >/dev/null 2>&1 || true
             docker compose down --volumes --remove-orphans >/dev/null 2>&1 || true
             exit "$status"
           }
           trap cleanup EXIT
-          docker compose config --quiet
-          docker compose up --build --detach --wait
+          docker compose --profile app config --quiet
+          docker compose --profile app up --build --detach --wait
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/livez" >/dev/null
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/readyz" >/dev/null
           curl --fail --silent "http://127.0.0.1:${GOBA_PORT}/openapi.json" >/dev/null
@@ -75,3 +85,56 @@ jobs:
           image_user="$(docker image inspect --format '{{.Config.User}}' "$image_id")"
           test -n "$image_user"
           test "$image_user" != "0"
+          docker run --detach --rm --name goba-readonly-check \
+            --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
+            --user "$GOBA_CONTAINER_UID:$GOBA_CONTAINER_GID" \
+            --security-opt no-new-privileges:true --cap-drop ALL \
+            --network "${COMPOSE_PROJECT_NAME}_default" --publish 18001:8000 \
+            --env GOBA_DATABASE_HOST=postgres --env GOBA_REDIS_HOST=redis \
+            --env GOBA_DATABASE_PASSWORD --env GOBA_REDIS_PASSWORD \
+            --env GOBA_AUTH_PRIVATE_KEY_FILE=/run/secrets/auth_private_key \
+            --env GOBA_FILE_STORAGE_PATH=/var/lib/goba/uploads \
+            --mount "type=bind,src=$PWD/configs/config.example.yaml,dst=/etc/goba/config.yaml,readonly" \
+            --mount "type=bind,src=$PWD/configs/auth-private.local.pem,dst=/run/secrets/auth_private_key,readonly" \
+            --mount "type=volume,src=${COMPOSE_PROJECT_NAME}_file_data,dst=/var/lib/goba/uploads" \
+            goba-slim:local serve --config /etc/goba/config.yaml
+          for _ in {1..30}; do
+            curl --fail --silent http://127.0.0.1:18001/readyz >/dev/null && break
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18001/readyz >/dev/null
+          readonly_rootfs="$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' goba-readonly-check)"
+          test "$readonly_rootfs" = "true"
+          docker rm --force goba-readonly-check >/dev/null
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: goba-slim:local
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64}
+          - {goos: linux, goarch: arm64}
+          - {goos: windows, goarch: amd64}
+          - {goos: darwin, goarch: amd64}
+          - {goos: darwin, goarch: arm64}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: true
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        shell: bash
+        run: |
+          suffix=""
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then suffix=".exe"; fi
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -trimpath -o "bin/goba-${{ matrix.goos }}-${{ matrix.goarch }}${suffix}" ./cmd/goba

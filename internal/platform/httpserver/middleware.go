@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	requestIDHeader     = "X-Request-ID"
-	defaultMaxBodyBytes = 10 << 20
-	minRequestIDLength  = 8
-	maxRequestIDLength  = 128
+	requestIDHeader        = "X-Request-ID"
+	defaultMaxBodyBytes    = 10 << 20
+	multipartOverheadBytes = 1 << 20
+	minRequestIDLength     = 8
+	maxRequestIDLength     = 128
 
 	defaultContentSecurityPolicy = "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 	swaggerContentSecurityPolicy = "default-src 'self'; style-src 'self' 'unsafe-inline' https://unpkg.com; script-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data:; font-src 'self' https://unpkg.com; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
@@ -130,10 +131,14 @@ func corsMiddleware(cors config.CORSConfig) gin.HandlerFunc {
 	}
 }
 
-func bodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
+func bodyLimitMiddleware(maxBytes, fileMaxBytes int64) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if ctx.Request.Body != nil {
-			ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxBytes)
+			limit := maxBytes
+			if ctx.Request.Method == http.MethodPost && ctx.Request.URL.Path == "/api/v1/files" {
+				limit = fileMaxBytes
+			}
+			ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, limit)
 		}
 		ctx.Next()
 	}

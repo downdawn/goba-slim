@@ -32,6 +32,7 @@ type BuildApplicationFunc func(context.Context, config.Config, *slog.Logger) (ap
 type DatabaseStatusFunc func(context.Context, config.Config) (database.Status, error)
 type InitializeDatabaseFunc func(context.Context, config.Config) error
 type CreateAdminFunc func(context.Context, config.Config, user.CreateInput) (user.User, error)
+type DoctorFunc func(context.Context, config.Config) app.DiagnosticReport
 
 // Dependencies 定义命令行所需的可替换依赖，便于测试且避免隐式全局状态。
 type Dependencies struct {
@@ -41,6 +42,7 @@ type Dependencies struct {
 	DBStatus  DatabaseStatusFunc
 	DBInit    InitializeDatabaseFunc
 	AddAdmin  CreateAdminFunc
+	Doctor    DoctorFunc
 }
 
 func (d Dependencies) withDefaults() Dependencies {
@@ -64,6 +66,9 @@ func (d Dependencies) withDefaults() Dependencies {
 	if d.AddAdmin == nil {
 		d.AddAdmin = app.CreateAdmin
 	}
+	if d.Doctor == nil {
+		d.Doctor = app.Diagnose
+	}
 	return d
 }
 
@@ -80,6 +85,8 @@ func NewRoot(deps Dependencies) *cobra.Command {
 	root.AddCommand(newServeCommand(deps))
 	root.AddCommand(newDatabaseCommand(deps))
 	root.AddCommand(newUserCommand(deps))
+	root.AddCommand(newDoctorCommand(deps))
+	root.AddCommand(newModuleCommand(deps))
 	return root
 }
 
