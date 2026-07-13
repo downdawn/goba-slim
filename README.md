@@ -6,7 +6,7 @@
 
 GoBA Slim 是一个面向 Go HTTP 服务的模块化单体工程内核。它提供显式组合根、强类型配置、PostgreSQL 用户模块、Redis 认证会话、OpenAPI 契约和完整质量门禁，适合作为新业务服务的可靠起点。
 
-当前已完成 Phase 1-3：工程内核、用户模块和认证会话均可运行。后续阶段见[路线图](docs/roadmap.md)。
+当前已完成 Phase 1-2；Phase 3 的认证会话核心闭环可运行，尚需完成 JWT 公钥轮换和补充安全验收。准确阶段状态见[路线图](docs/roadmap.md)。
 
 ## 特性
 
@@ -56,6 +56,8 @@ task check           # 完整本地验收
 task dev:down
 ```
 
+使用 GoLand 时，也可以在完成 `task setup` 和 `task db:init` 后，直接右键运行或调试仓库根目录的 [`run.go`](run.go)。它与 `task run` 使用同一套 CLI、配置和应用装配逻辑。
+
 独立生成本地认证私钥：
 
 ```bash
@@ -66,9 +68,9 @@ task auth:keygen
 
 ## 部署
 
-生产交付物是单一非 root API 镜像。PostgreSQL 与 Redis 作为外部依赖，通过环境变量或挂载配置提供地址，通过平台 Secret 或 `_FILE` 变量提供密码和私钥。镜像不创建数据库，也不在启动时修改 Schema。
+生产支持两种拓扑：完整 Compose 用于小规模自托管，单一非 root API 镜像用于连接外部或托管的 PostgreSQL/Redis。两种方式都保持 API、PostgreSQL 与 Redis 职责独立；镜像不内置数据库，也不在服务启动时修改 Schema。
 
-生产环境要求、容器启动示例和配置清单见[部署说明](docs/deployment.md)。本仓库的 `compose.yaml` 只用于本地开发和验收，不是生产编排模板。
+生产环境要求、Compose 自托管边界、容器启动示例和配置清单见[部署说明](docs/deployment.md)。
 
 ## 文档
 

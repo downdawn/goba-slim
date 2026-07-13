@@ -63,6 +63,16 @@ go run ./cmd/goba db status --config configs/config.local.yaml --load-dotenv
 go run ./cmd/goba user create-admin --username admin --config configs/config.local.yaml --load-dotenv
 ```
 
+### GoLand 运行与调试
+
+完成 `task setup` 和 `task db:init` 后，可以直接在 GoLand 中右键运行或调试仓库根目录的 `run.go`。该文件等价于：
+
+```bash
+goba serve --config configs/config.local.yaml --load-dotenv
+```
+
+它只提供 IDE 入口，实际启动仍复用 `internal/cli` 和应用组合根。GoLand 的 Working directory 必须是仓库根目录；默认配置通常已满足这一条件。
+
 管理员密码通过交互式终端读取；非交互环境必须使用权限受控的 `--password-file`，不能把密码写入命令行参数。
 
 ## 完整 Compose 验收
