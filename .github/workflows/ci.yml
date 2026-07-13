@@ -8,10 +8,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.x'
+          go-version: '1.26.5'
           cache: true
       - run: go mod download
       - run: go tool oapi-codegen --package generated --generate gin,types,embedded-spec -o api/openapi/generated/openapi.gen.go api/openapi/openapi.yaml
@@ -27,12 +27,12 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.x'
+          go-version: '1.26.5'
           cache: true
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
   docker:
@@ -41,16 +41,29 @@ jobs:
       COMPOSE_PROJECT_NAME: goba-slim-ci
       GOBA_PORT: "18000"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: true
       - name: Verify Compose stack
         shell: bash
         run: |
           set -euo pipefail
           export GOBA_DATABASE_PASSWORD="$(openssl rand -hex 24)"
           export GOBA_REDIS_PASSWORD="$(openssl rand -hex 24)"
+          export GOBA_CONTAINER_UID="$(id -u)"
+          export GOBA_CONTAINER_GID="$(id -g)"
           go run ./tools/devtool keygen
           cleanup() {
+            status=$?
+            trap - EXIT
+            if (( status != 0 )); then
+              docker compose ps --all || true
+              docker compose logs --no-color --timestamps goba db-init postgres redis || true
+            fi
             docker compose down --volumes --remove-orphans >/dev/null 2>&1 || true
+            exit "$status"
           }
           trap cleanup EXIT
           docker compose config --quiet

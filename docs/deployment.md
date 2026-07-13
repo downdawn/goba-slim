@@ -49,6 +49,8 @@ GOBA_AUTH_VERIFICATION_KEY_FILES=2026-06=/run/secrets/auth_public_2026_06.pem
 
 推荐由部署平台把 Secret 挂载为只读文件。不要把实际 Secret 写入镜像、Compose 文件、仓库或日志。
 
+仓库 Compose 在 Linux 和 macOS 上通过 `GOBA_CONTAINER_UID`、`GOBA_CONTAINER_GID` 让非 root API 进程与宿主私钥文件所有者对齐；`task compose:up` 会自动设置这两个值。其他部署平台应直接把 Secret 文件的读取权限授予容器运行用户，不应放宽宿主私钥权限。
+
 ## JWT 密钥轮换
 
 Access Token 使用当前 Ed25519 私钥签发，并根据 JWT `kid` 从当前公钥和旧公钥集合中选择验证密钥。轮换不会延长 Token 生命周期，也不会绕过 Redis Session 校验。

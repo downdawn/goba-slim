@@ -115,7 +115,10 @@ tasks:
     desc: 一键初始化并启动完整 Compose 环境
     cmds:
       - task: setup
-      - docker compose up --build --detach --wait
+      - cmd: docker compose up --build --detach --wait
+        platforms: [windows]
+      - cmd: GOBA_CONTAINER_UID="$(id -u)" GOBA_CONTAINER_GID="$(id -g)" docker compose up --build --detach --wait
+        platforms: [linux, darwin]
 
   compose:down:
     desc: 停止并删除本地 Compose 服务

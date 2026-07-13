@@ -38,6 +38,7 @@ services:
       context: .
       dockerfile: deployments/Dockerfile
     image: goba-slim:local
+    user: "${GOBA_CONTAINER_UID:-65532}:${GOBA_CONTAINER_GID:-65532}"
     ports:
       - "${GOBA_PORT:-8000}:8000"
     environment:

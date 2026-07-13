@@ -2,7 +2,7 @@
 
 ## 环境要求
 
-- Go 1.26+
+- Go 1.26.5+
 - Task
 - Docker 与 Docker Compose
 
@@ -89,6 +89,8 @@ task compose:down
 
 `task compose:up` 会先执行幂等的 `task setup`，是全新克隆后完整环境的一键入口；重复执行不会重复建表。该编排复用本地 `.env` 的随机密码和本地私钥文件，适合开发、验收和小规模自托管；正式生产仍需按部署环境补齐 TLS、备份、监控和恢复策略。修改宿主端口可设置 `GOBA_PORT`。
 PostgreSQL 与 Redis 默认分别发布到宿主机 `5432` 和 `6379`，与本地应用配置保持一致；端口已被占用时，可在 `.env` 同时调整 `GOBA_DATABASE_PORT` 或 `GOBA_REDIS_PORT`。
+
+Linux 和 macOS 上，`task compose:up` 会让 API 容器使用当前用户的 UID/GID，从而在保持本地私钥为 `0600` 的同时允许非 root 进程读取文件型 Secret。直接执行 `docker compose up` 时，应显式设置 `GOBA_CONTAINER_UID=$(id -u)` 和 `GOBA_CONTAINER_GID=$(id -g)`；Windows Docker Desktop 使用镜像默认的非 root 用户。
 
 ## Schema 与生成代码
 
