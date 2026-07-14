@@ -74,7 +74,7 @@ jobs:
           output-file: dist/goba-slim.spdx.json
       - name: Checksums
         run: (cd dist && sha256sum * > checksums.txt)
-      - uses: softprops/action-gh-release@v3.0.1
+      - uses: softprops/action-gh-release@v3.0.2
         with:
           files: dist/*
           generate_release_notes: true
