@@ -1,4 +1,4 @@
-// Package database 提供 PostgreSQL 连接、Schema 检查和显式初始化能力。
+// Package database 提供 PostgreSQL 连接与 Schema 版本检查能力。
 package database
 
 import (
@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	dbgen "github.com/downdawn/goba-slim/db/generated"
-	"github.com/downdawn/goba-slim/db/schema"
 	"github.com/downdawn/goba-slim/internal/platform/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -23,13 +21,14 @@ var (
 	ErrNotStarted       = errors.New("PostgreSQL 尚未启动")
 	ErrSchemaMissing    = errors.New("数据库 Schema 尚未初始化")
 	ErrSchemaMismatch   = errors.New("数据库 Schema 版本不匹配")
-	ErrDatabaseNotEmpty = errors.New("目标数据库不是空数据库")
+	ErrDatabaseNotEmpty = errors.New("目标数据库不是空数据库或不受 GoBA 管理")
 )
 
 type Status struct {
 	ServerVersion string
 	SchemaVersion int32
 	Expected      int32
+	Pending       int32
 	Initialized   bool
 }
 
@@ -158,95 +157,62 @@ func Inspect(ctx context.Context, cfg config.DatabaseConfig) (Status, error) {
 	return inspect(ctx, pool, false)
 }
 
-func Initialize(ctx context.Context, cfg config.DatabaseConfig) error {
-	pool, err := Open(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("开始数据库初始化事务失败: %w", err)
-	}
-	//nolint:contextcheck // 回滚清理不能依赖可能已取消的初始化 Context。
-	defer func() { _ = tx.Rollback(context.Background()) }()
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('goba.schema.init'))"); err != nil {
-		return fmt.Errorf("锁定数据库初始化失败: %w", err)
-	}
-	queries := dbgen.New(tx)
-	tables, err := queries.ListPublicTables(ctx)
-	if err != nil {
-		return fmt.Errorf("检查数据库表失败: %w", err)
-	}
-	if len(tables) != 0 {
-		migration, err := queries.GetSchemaVersion(ctx)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
-				return ErrDatabaseNotEmpty
-			}
-			return fmt.Errorf("检查数据库 Schema 版本失败: %w", err)
-		}
-		if migration.Version != schema.CurrentVersion {
-			return fmt.Errorf("%w: 当前版本 %d，期望版本 %d", ErrSchemaMismatch, migration.Version, schema.CurrentVersion)
-		}
-		if len(tables) != len(schema.CurrentPublicTables) {
-			return ErrDatabaseNotEmpty
-		}
-		for index, table := range tables {
-			if !table.Valid || table.String != schema.CurrentPublicTables[index] {
-				return ErrDatabaseNotEmpty
-			}
-		}
-		return nil
-	}
-	if _, err := tx.Exec(ctx, schema.InitialSQL); err != nil {
-		return fmt.Errorf("执行初始化 SQL 失败: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("提交数据库初始化失败: %w", err)
-	}
-	return nil
-}
-
 func inspect(ctx context.Context, pool *pgxpool.Pool, requireSchema bool) (Status, error) {
-	if err := pool.Ping(ctx); err != nil {
-		return Status{}, fmt.Errorf("PostgreSQL 就绪检查失败: %w", err)
-	}
-	var versionNumberText string
-	var version string
-	if err := pool.QueryRow(ctx, "SHOW server_version_num").Scan(&versionNumberText); err != nil {
-		return Status{}, fmt.Errorf("读取 PostgreSQL 版本失败: %w", err)
-	}
-	versionNumber, err := strconv.Atoi(versionNumberText)
+	version, err := serverVersion(ctx, pool)
 	if err != nil {
-		return Status{}, fmt.Errorf("读取 PostgreSQL 版本失败")
+		return Status{}, err
 	}
-	if err := pool.QueryRow(ctx, "SHOW server_version").Scan(&version); err != nil {
-		return Status{}, fmt.Errorf("读取 PostgreSQL 版本失败: %w", err)
-	}
-	if versionNumber/10000 < 16 {
-		return Status{}, fmt.Errorf("PostgreSQL 版本必须为 16 或更高")
-	}
-	status := Status{ServerVersion: version, Expected: schema.CurrentVersion}
-	migration, err := dbgen.New(pool).GetSchemaVersion(ctx)
+	expected, err := expectedVersion(ctx)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
-			if requireSchema {
-				return Status{}, ErrSchemaMissing
-			}
-			return status, nil
+		return Status{}, err
+	}
+	status := Status{ServerVersion: version, Expected: expected}
+	exists, err := versionTableExists(ctx, pool)
+	if err != nil {
+		return Status{}, err
+	}
+	if !exists {
+		if requireSchema {
+			return status, ErrSchemaMissing
 		}
+		return status, nil
+	}
+	if err := pool.QueryRow(ctx, "SELECT version FROM "+versionTable).Scan(&status.SchemaVersion); err != nil {
 		return Status{}, fmt.Errorf("检查数据库 Schema 版本失败: %w", err)
 	}
-	status.SchemaVersion = migration.Version
 	status.Initialized = true
-	if migration.Version != schema.CurrentVersion {
-		return status, fmt.Errorf("%w: 当前版本 %d，期望版本 %d", ErrSchemaMismatch, migration.Version, schema.CurrentVersion)
+	status.Pending = max(0, expected-status.SchemaVersion)
+	if status.SchemaVersion != expected {
+		return status, fmt.Errorf("%w: 当前版本 %d，期望版本 %d", ErrSchemaMismatch, status.SchemaVersion, expected)
 	}
 	return status, nil
+}
+
+type rowQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func serverVersion(ctx context.Context, query rowQuerier) (string, error) {
+	var numberText, version string
+	if err := query.QueryRow(ctx, "SHOW server_version_num").Scan(&numberText); err != nil {
+		return "", fmt.Errorf("读取 PostgreSQL 版本失败: %w", err)
+	}
+	number, err := strconv.Atoi(numberText)
+	if err != nil || number/10000 < 16 {
+		return "", fmt.Errorf("PostgreSQL 版本必须为 16 或更高")
+	}
+	if err := query.QueryRow(ctx, "SHOW server_version").Scan(&version); err != nil {
+		return "", fmt.Errorf("读取 PostgreSQL 版本失败: %w", err)
+	}
+	return version, nil
+}
+
+func versionTableExists(ctx context.Context, query rowQuerier) (bool, error) {
+	var exists bool
+	if err := query.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", versionTable).Scan(&exists); err != nil {
+		return false, fmt.Errorf("检查数据库 Schema 版本表失败: %w", err)
+	}
+	return exists, nil
 }
 
 func newPoolConfig(cfg config.DatabaseConfig) (*pgxpool.Config, error) {

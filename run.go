@@ -15,12 +15,21 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	command := cli.NewRoot(cli.Dependencies{})
-	command.SetArgs([]string{"serve", "--config", "configs/config.local.yaml", "--load-dotenv"})
-	command.SetOut(os.Stdout)
-	command.SetErr(os.Stderr)
-	if err := command.ExecuteContext(ctx); err != nil {
+	if err := execute(ctx, "db", "migrate", "--config", "configs/config.local.yaml", "--load-dotenv"); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := execute(ctx, "serve", "--config", "configs/config.local.yaml", "--load-dotenv"); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func execute(ctx context.Context, args ...string) error {
+	//nolint:contextcheck // 构造 CLI 不启动 I/O，执行时才使用传入的 Context。
+	command := cli.NewRoot(cli.Dependencies{})
+	command.SetArgs(args)
+	command.SetOut(os.Stdout)
+	command.SetErr(os.Stderr)
+	return command.ExecuteContext(ctx)
 }

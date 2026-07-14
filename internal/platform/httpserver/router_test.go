@@ -100,6 +100,32 @@ func TestRouterDoesNotRegisterFileRoutesWhenModuleDisabled(t *testing.T) {
 	}
 }
 
+func TestRouterEnforcesOpenAPIRequestConstraints(t *testing.T) {
+	router := NewRouter(testOptions(health.NewService(nil)))
+	tests := []struct {
+		name    string
+		request *http.Request
+	}{
+		{name: "short login username", request: httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"username":"x","password":"secret"}`))},
+		{name: "invalid user page", request: httptest.NewRequest(http.MethodGet, "/api/v1/users?page=0", nil)},
+		{name: "invalid user identifier", request: httptest.NewRequest(http.MethodPatch, "/api/v1/users/not-a-uuid", strings.NewReader(`{"username":"user","display_name":"User"}`))},
+		{name: "invalid session identifier", request: httptest.NewRequest(http.MethodDelete, "/api/v1/me/sessions/not-a-uuid", nil)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.request.Body != nil {
+				test.request.Header.Set("Content-Type", "application/json")
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, test.request)
+
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			require.Contains(t, response.Body.String(), "INVALID_REQUEST")
+		})
+	}
+}
+
 func TestRouterRegistersFileUploadWhenModuleEnabled(t *testing.T) {
 	options := testOptions(health.NewService(nil))
 	options.Config.Modules.File = true

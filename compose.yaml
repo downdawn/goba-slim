@@ -54,7 +54,7 @@ services:
       - redis_password
       - auth_private_key
     depends_on:
-      db-init:
+      db-migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
@@ -68,7 +68,7 @@ services:
         target: /var/lib/goba/uploads
     command: ["serve", "--config", "/etc/goba/config.yaml"]
     healthcheck:
-      test: ["CMD", "/goba", "db", "status", "--config", "/etc/goba/config.yaml"]
+      test: ["CMD", "/goba", "healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -80,13 +80,13 @@ services:
     cap_drop:
       - ALL
 
-  db-init:
+  db-migrate:
     profiles: [app]
     build:
       context: .
       dockerfile: deployments/Dockerfile
     image: goba-slim:local
-    entrypoint: ["/goba", "db", "init", "--yes", "--config", "/etc/goba/config.yaml"]
+    entrypoint: ["/goba", "db", "migrate", "--config", "/etc/goba/config.yaml"]
     environment:
       GOBA_DATABASE_HOST: postgres
       GOBA_DATABASE_PASSWORD_FILE: /run/secrets/database_password

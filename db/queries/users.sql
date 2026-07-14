@@ -96,6 +96,12 @@ RETURNING id, username, password_hash, display_name, email, avatar_url,
           status, is_superuser, allow_multiple_sessions, session_version,
           password_changed_at, last_login_at, created_at, updated_at, archived_at;
 
+-- name: UpdateUserPasswordHash :exec
+UPDATE users
+SET password_hash = $2,
+    updated_at = $3
+WHERE id = $1;
+
 -- name: UpdateUserLastLogin :exec
 UPDATE users
 SET last_login_at = $2,

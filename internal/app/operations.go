@@ -13,8 +13,8 @@ func DatabaseStatus(ctx context.Context, cfg config.Config) (database.Status, er
 	return database.Inspect(ctx, cfg.Database)
 }
 
-func InitializeDatabase(ctx context.Context, cfg config.Config) error {
-	return database.Initialize(ctx, cfg.Database)
+func MigrateDatabase(ctx context.Context, cfg config.Config) (database.MigrationResult, error) {
+	return database.Migrate(ctx, cfg.Database)
 }
 
 func CreateAdmin(ctx context.Context, cfg config.Config, input user.CreateInput) (user.User, error) {

@@ -17,6 +17,7 @@ type Repository interface {
 	SetSuperuser(context.Context, uuid.UUID, bool, time.Time) (User, error)
 	SetMultipleSessions(context.Context, uuid.UUID, bool, time.Time) (User, error)
 	UpdatePassword(context.Context, uuid.UUID, string, time.Time) (User, error)
+	UpdatePasswordHash(context.Context, uuid.UUID, string, time.Time) error
 	UpdateLastLogin(context.Context, uuid.UUID, time.Time) error
 	LockSuperuserChanges(context.Context) error
 	CountActiveSuperusers(context.Context) (int64, error)

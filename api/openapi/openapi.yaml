@@ -284,6 +284,52 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/ErrorResponse'
+  /api/v1/me/sessions:
+    get:
+      tags: [Profile]
+      operationId: listCurrentUserSessions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+  /api/v1/me/sessions/others:
+    delete:
+      tags: [Profile]
+      operationId: revokeOtherCurrentUserSessions
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Other sessions revoked
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+  /api/v1/me/sessions/{sessionId}:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [Profile]
+      operationId: revokeCurrentUserSession
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Session revoked
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
   /api/v1/me/password:
     put:
       tags: [Profile]
@@ -469,6 +515,29 @@ components:
           format: uuid
         user:
           $ref: '#/components/schemas/User'
+    Session:
+      type: object
+      required: [id, created_at, expires_at, current]
+      properties:
+        id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+    SessionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
     User:
       type: object
       required: [id, username, display_name, status, is_superuser, allow_multiple_sessions, created_at, updated_at]

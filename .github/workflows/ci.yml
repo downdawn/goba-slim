@@ -68,7 +68,7 @@ jobs:
             trap - EXIT
             if (( status != 0 )); then
               docker compose ps --all || true
-              docker compose --profile app logs --no-color --timestamps goba db-init postgres redis || true
+              docker compose --profile app logs --no-color --timestamps goba db-migrate postgres redis || true
               docker logs goba-readonly-check || true
             fi
             docker rm --force goba-readonly-check >/dev/null 2>&1 || true

@@ -37,6 +37,10 @@ func TestRedisRefreshRotationAndReuseRevocation(t *testing.T) {
 	}
 	require.NoError(t, store.Create(t.Context(), session, time.Hour, true))
 
+	listed, err := store.ListByUser(t.Context(), session.UserID)
+	require.NoError(t, err)
+	require.Equal(t, []auth.Session{session}, listed)
+
 	results := make(chan error, 2)
 	var wait sync.WaitGroup
 	wait.Add(2)

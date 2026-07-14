@@ -8,7 +8,6 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
@@ -17,12 +16,10 @@ type Querier interface {
 	CreateSystemConfig(ctx context.Context, arg CreateSystemConfigParams) (SystemConfig, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteSystemConfig(ctx context.Context, key string) (int64, error)
-	GetSchemaVersion(ctx context.Context) (SchemaMigration, error)
 	GetSystemConfig(ctx context.Context, key string) (SystemConfig, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	ListPublicSystemConfigs(ctx context.Context) ([]SystemConfig, error)
-	ListPublicTables(ctx context.Context) ([]pgtype.Text, error)
 	ListSystemConfigs(ctx context.Context) ([]SystemConfig, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	LockSuperuserChanges(ctx context.Context) error
@@ -32,6 +29,7 @@ type Querier interface {
 	UpdateSystemConfig(ctx context.Context, arg UpdateSystemConfigParams) (SystemConfig, error)
 	UpdateUserLastLogin(ctx context.Context, arg UpdateUserLastLoginParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (User, error)
+	UpdateUserPasswordHash(ctx context.Context, arg UpdateUserPasswordHashParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)
 }
 

@@ -1,18 +1,16 @@
 package cli
 
 import (
-	"bufio"
 	"fmt"
-	"strings"
 
 	"github.com/downdawn/goba-slim/internal/platform/config"
 	"github.com/spf13/cobra"
 )
 
 func newDatabaseCommand(deps Dependencies) *cobra.Command {
-	cmd := &cobra.Command{Use: "db", Short: "检查或初始化 PostgreSQL"}
+	cmd := &cobra.Command{Use: "db", Short: "检查或迁移 PostgreSQL"}
 	cmd.AddCommand(newDatabaseStatusCommand(deps))
-	cmd.AddCommand(newDatabaseInitCommand(deps))
+	cmd.AddCommand(newDatabaseMigrateCommand(deps))
 	return cmd
 }
 
@@ -35,7 +33,7 @@ func newDatabaseStatusCommand(deps Dependencies) *cobra.Command {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "PostgreSQL %s，Schema 尚未初始化（期望版本 %d）\n", status.ServerVersion, status.Expected)
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "PostgreSQL %s，Schema 版本 %d\n", status.ServerVersion, status.SchemaVersion)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "PostgreSQL %s，Schema 版本 %d，待执行 %d\n", status.ServerVersion, status.SchemaVersion, status.Pending)
 			return err
 		},
 	}
@@ -43,38 +41,26 @@ func newDatabaseStatusCommand(deps Dependencies) *cobra.Command {
 	return cmd
 }
 
-func newDatabaseInitCommand(deps Dependencies) *cobra.Command {
+func newDatabaseMigrateCommand(deps Dependencies) *cobra.Command {
 	var configFile string
-	var loadDotEnv, confirmed bool
+	var loadDotEnv bool
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "显式初始化空 PostgreSQL 数据库",
+		Use:   "migrate",
+		Short: "显式迁移 PostgreSQL Schema",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := deps.Load(cmd.Context(), config.Options{File: configFile, LoadDotEnv: loadDotEnv})
 			if err != nil {
 				return fmt.Errorf("加载配置失败: %w", err)
 			}
-			if !confirmed {
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "将检查并在必要时初始化 %s:%d/%s，输入 yes 继续: ", cfg.Database.Host, cfg.Database.Port, cfg.Database.Name); err != nil {
-					return err
-				}
-				scanner := bufio.NewScanner(cmd.InOrStdin())
-				if !scanner.Scan() || strings.TrimSpace(scanner.Text()) != "yes" {
-					return fmt.Errorf("数据库初始化已取消")
-				}
-				if err := scanner.Err(); err != nil {
-					return fmt.Errorf("读取确认输入失败: %w", err)
-				}
+			result, err := deps.DBMigrate(cmd.Context(), cfg)
+			if err != nil {
+				return fmt.Errorf("迁移数据库失败: %w", err)
 			}
-			if err := deps.DBInit(cmd.Context(), cfg); err != nil {
-				return fmt.Errorf("初始化数据库失败: %w", err)
-			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), "数据库 Schema 已就绪")
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "数据库 Schema 已就绪：版本 %d -> %d，应用 %d 项迁移\n", result.Previous, result.Current, result.Applied)
 			return err
 		},
 	}
 	addConfigFlags(cmd, &configFile, &loadDotEnv)
-	cmd.Flags().BoolVar(&confirmed, "yes", false, "确认初始化目标空数据库")
 	return cmd
 }
 

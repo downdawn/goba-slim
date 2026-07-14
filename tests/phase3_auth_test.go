@@ -33,7 +33,9 @@ import (
 
 func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	cfg := startPostgreSQL(t)
-	require.NoError(t, database.Initialize(t.Context(), cfg.Database))
+	cfg.Auth.LoginAttempts = 10
+	_, err := database.Migrate(t.Context(), cfg.Database)
+	require.NoError(t, err)
 	redisContainer := configureRedis(t, &cfg)
 	cfg.Auth.PrivateKey = config.NewSecret(generatePrivateKey(t))
 	cfg.CORS.AllowOrigins = []string{"https://app.example.test"}
@@ -42,7 +44,7 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	cfg.File.StoragePath = filepath.Join(t.TempDir(), "uploads")
 	cfg.Modules.SystemConfig = true
 
-	_, err := app.CreateAdmin(t.Context(), cfg, user.CreateInput{Username: "admin", Password: "AdminPassword9"})
+	_, err = app.CreateAdmin(t.Context(), cfg, user.CreateInput{Username: "admin", Password: "AdminPassword9", AllowMultipleSessions: true})
 	require.NoError(t, err)
 	application, err := app.Build(t.Context(), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.NoError(t, err)
@@ -69,6 +71,7 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	require.NotEmpty(t, first.AccessToken)
 	require.NotEmpty(t, oldCookies)
 	require.True(t, oldCookies[0].HttpOnly)
+	testSessionManagementHTTP(t, client, baseURL, first)
 
 	testOptionalModulesHTTP(t, client, baseURL, first.AccessToken)
 
@@ -159,6 +162,38 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	redisUnavailable := getAuthorized(t, client, baseURL+"/api/v1/me", fifth.AccessToken)
 	require.Equal(t, http.StatusServiceUnavailable, redisUnavailable.StatusCode)
 	require.NoError(t, redisUnavailable.Body.Close())
+}
+
+func testSessionManagementHTTP(t *testing.T, client *http.Client, baseURL string, current generated.TokenResponse) {
+	t.Helper()
+	sessions := getAuthorized(t, client, baseURL+"/api/v1/me/sessions", current.AccessToken)
+	require.Equal(t, http.StatusOK, sessions.StatusCode)
+	var before generated.SessionList
+	require.NoError(t, json.NewDecoder(sessions.Body).Decode(&before))
+	require.NoError(t, sessions.Body.Close())
+	require.Len(t, before.Items, 1)
+	require.Equal(t, current.SessionId, before.Items[0].Id)
+	require.True(t, before.Items[0].Current)
+
+	otherJar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	otherClient := &http.Client{Jar: otherJar, Timeout: 10 * time.Second}
+	otherLogin := postJSON(t, otherClient, baseURL+"/api/v1/auth/login", map[string]string{"username": "admin", "password": "AdminPassword9"}, "")
+	require.Equal(t, http.StatusOK, otherLogin.StatusCode)
+	var other generated.TokenResponse
+	require.NoError(t, json.NewDecoder(otherLogin.Body).Decode(&other))
+	require.NoError(t, otherLogin.Body.Close())
+
+	revoke, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, baseURL+"/api/v1/me/sessions/others", nil)
+	require.NoError(t, err)
+	revoke.Header.Set("Authorization", "Bearer "+current.AccessToken)
+	revoked, err := client.Do(revoke)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, revoked.StatusCode)
+	require.NoError(t, revoked.Body.Close())
+	otherMe := getAuthorized(t, otherClient, baseURL+"/api/v1/me", other.AccessToken)
+	require.Equal(t, http.StatusUnauthorized, otherMe.StatusCode)
+	require.NoError(t, otherMe.Body.Close())
 }
 
 func testOptionalModulesHTTP(t *testing.T, client *http.Client, baseURL, accessToken string) {

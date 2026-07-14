@@ -78,6 +78,9 @@ func (s *Store) SetMultipleSessions(ctx context.Context, userID uuid.UUID, enabl
 func (s *Store) UpdatePassword(ctx context.Context, userID uuid.UUID, hash string, now time.Time) (user.User, error) {
 	return (&repository{queries: s.queries}).UpdatePassword(ctx, userID, hash, now)
 }
+func (s *Store) UpdatePasswordHash(ctx context.Context, userID uuid.UUID, hash string, now time.Time) error {
+	return (&repository{queries: s.queries}).UpdatePasswordHash(ctx, userID, hash, now)
+}
 func (s *Store) UpdateLastLogin(ctx context.Context, userID uuid.UUID, now time.Time) error {
 	return (&repository{queries: s.queries}).UpdateLastLogin(ctx, userID, now)
 }
@@ -151,6 +154,13 @@ func (r *repository) SetMultipleSessions(ctx context.Context, userID uuid.UUID, 
 func (r *repository) UpdatePassword(ctx context.Context, userID uuid.UUID, hash string, now time.Time) (user.User, error) {
 	result, err := r.queries.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{ID: userID, PasswordHash: hash, PasswordChangedAt: toTimestamp(now)})
 	return mapResult("更新用户密码", result, err)
+}
+
+func (r *repository) UpdatePasswordHash(ctx context.Context, userID uuid.UUID, hash string, now time.Time) error {
+	if err := r.queries.UpdateUserPasswordHash(ctx, dbgen.UpdateUserPasswordHashParams{ID: userID, PasswordHash: hash, UpdatedAt: toTimestamp(now)}); err != nil {
+		return fmt.Errorf("升级用户密码摘要失败: %w", err)
+	}
+	return nil
 }
 
 func (r *repository) UpdateLastLogin(ctx context.Context, userID uuid.UUID, now time.Time) error {

@@ -30,7 +30,7 @@ type LoggerFactory func(config.LogConfig, io.Writer) (*slog.Logger, *slog.LevelV
 // BuildApplicationFunc 定义装配可运行应用的依赖。
 type BuildApplicationFunc func(context.Context, config.Config, *slog.Logger) (application, error)
 type DatabaseStatusFunc func(context.Context, config.Config) (database.Status, error)
-type InitializeDatabaseFunc func(context.Context, config.Config) error
+type MigrateDatabaseFunc func(context.Context, config.Config) (database.MigrationResult, error)
 type CreateAdminFunc func(context.Context, config.Config, user.CreateInput) (user.User, error)
 type DoctorFunc func(context.Context, config.Config) app.DiagnosticReport
 
@@ -40,9 +40,10 @@ type Dependencies struct {
 	NewLogger LoggerFactory
 	Build     BuildApplicationFunc
 	DBStatus  DatabaseStatusFunc
-	DBInit    InitializeDatabaseFunc
+	DBMigrate MigrateDatabaseFunc
 	AddAdmin  CreateAdminFunc
 	Doctor    DoctorFunc
+	Probe     ReadinessProbeFunc
 }
 
 func (d Dependencies) withDefaults() Dependencies {
@@ -60,14 +61,17 @@ func (d Dependencies) withDefaults() Dependencies {
 	if d.DBStatus == nil {
 		d.DBStatus = app.DatabaseStatus
 	}
-	if d.DBInit == nil {
-		d.DBInit = app.InitializeDatabase
+	if d.DBMigrate == nil {
+		d.DBMigrate = app.MigrateDatabase
 	}
 	if d.AddAdmin == nil {
 		d.AddAdmin = app.CreateAdmin
 	}
 	if d.Doctor == nil {
 		d.Doctor = app.Diagnose
+	}
+	if d.Probe == nil {
+		d.Probe = probeReadiness
 	}
 	return d
 }
@@ -86,7 +90,7 @@ func NewRoot(deps Dependencies) *cobra.Command {
 	root.AddCommand(newDatabaseCommand(deps))
 	root.AddCommand(newUserCommand(deps))
 	root.AddCommand(newDoctorCommand(deps))
-	root.AddCommand(newModuleCommand(deps))
+	root.AddCommand(newHealthcheckCommand(deps))
 	return root
 }
 

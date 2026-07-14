@@ -21,7 +21,8 @@ import (
 
 func TestPhase5SystemConfigWorkflow(t *testing.T) {
 	cfg := startPostgreSQL(t)
-	require.NoError(t, database.Initialize(t.Context(), cfg.Database))
+	_, err := database.Migrate(t.Context(), cfg.Database)
+	require.NoError(t, err)
 	databaseComponent, err := database.New(cfg.Database)
 	require.NoError(t, err)
 	require.NoError(t, databaseComponent.Start(t.Context()))

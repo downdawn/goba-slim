@@ -1,9 +1,6 @@
 package app
 
 import (
-	"context"
-
-	"github.com/downdawn/goba-slim/internal/module"
 	"github.com/downdawn/goba-slim/internal/modules/auth"
 	authredis "github.com/downdawn/goba-slim/internal/modules/auth/redis"
 	"github.com/downdawn/goba-slim/internal/modules/user"
@@ -64,44 +61,3 @@ func newCoreComponents(cfg config.Config) (*coreComponents, error) {
 	components.auth = authService
 	return components, nil
 }
-
-func buildCoreModules(cfg config.Config) ([]module.Module, *coreComponents, error) {
-	components, err := newCoreComponents(cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	return []module.Module{
-		&databaseModule{component: components.database},
-		user.NewModule(components.users),
-		&redisModule{component: components.redis},
-		auth.NewModule(components.auth),
-	}, components, nil
-}
-
-type databaseModule struct{ component *database.Component }
-
-func (*databaseModule) Manifest() module.Manifest {
-	return module.Manifest{Name: "database", Core: true}
-}
-
-func (*databaseModule) Register(*module.Registry) error { return nil }
-
-func (m *databaseModule) Start(ctx context.Context) error { return m.component.Start(ctx) }
-
-func (m *databaseModule) Stop(ctx context.Context) error { return m.component.Stop(ctx) }
-
-func (m *databaseModule) Health(ctx context.Context) error { return m.component.Health(ctx) }
-
-type redisModule struct{ component *redisstore.Component }
-
-func (*redisModule) Manifest() module.Manifest {
-	return module.Manifest{Name: "redis", Core: true}
-}
-
-func (*redisModule) Register(*module.Registry) error { return nil }
-
-func (m *redisModule) Start(ctx context.Context) error { return m.component.Start(ctx) }
-
-func (m *redisModule) Stop(ctx context.Context) error { return m.component.Stop(ctx) }
-
-func (m *redisModule) Health(ctx context.Context) error { return m.component.Health(ctx) }

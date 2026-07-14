@@ -300,7 +300,7 @@ func (h *Handler) Logout(ctx *gin.Context) {
 		return
 	}
 	if err := h.auth.Logout(ctx.Request.Context(), identity.SessionID); err != nil {
-		WriteError(ctx, err)
+		WriteError(ctx, authHTTPError(err))
 		return
 	}
 	h.deleteRefreshCookie(ctx)
@@ -320,6 +320,53 @@ func (h *Handler) GetCurrentUser(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, userResponse(identity.User))
 }
 
+func (h *Handler) ListCurrentUserSessions(ctx *gin.Context) {
+	identity, err := h.identity(ctx)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	sessions, err := h.auth.ListSessions(ctx.Request.Context(), identity.User.ID, identity.SessionID)
+	if err != nil {
+		WriteError(ctx, authHTTPError(err))
+		return
+	}
+	response := generated.SessionList{Items: make([]generated.Session, 0, len(sessions))}
+	for _, session := range sessions {
+		response.Items = append(response.Items, generated.Session{Id: session.ID, CreatedAt: session.CreatedAt, ExpiresAt: session.ExpiresAt, Current: session.Current})
+	}
+	ctx.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) RevokeOtherCurrentUserSessions(ctx *gin.Context) {
+	identity, err := h.identity(ctx)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	if err := h.auth.RevokeOtherSessions(ctx.Request.Context(), identity.User.ID, identity.SessionID); err != nil {
+		WriteError(ctx, authHTTPError(err))
+		return
+	}
+	ctx.Status(http.StatusNoContent)
+}
+
+func (h *Handler) RevokeCurrentUserSession(ctx *gin.Context, sessionID openapi_types.UUID) {
+	identity, err := h.identity(ctx)
+	if err != nil {
+		WriteError(ctx, err)
+		return
+	}
+	if err := h.auth.RevokeSession(ctx.Request.Context(), identity.User.ID, sessionID); err != nil {
+		WriteError(ctx, authHTTPError(err))
+		return
+	}
+	if sessionID == identity.SessionID {
+		h.deleteRefreshCookie(ctx)
+	}
+	ctx.Status(http.StatusNoContent)
+}
+
 func (h *Handler) ChangePassword(ctx *gin.Context) {
 	identity, err := h.identity(ctx)
 	if err != nil {
@@ -336,7 +383,7 @@ func (h *Handler) ChangePassword(ctx *gin.Context) {
 		return
 	}
 	if err := h.auth.RevokeUser(ctx.Request.Context(), identity.User.ID); err != nil {
-		WriteError(ctx, err)
+		WriteError(ctx, authHTTPError(err))
 		return
 	}
 	h.deleteRefreshCookie(ctx)
@@ -574,6 +621,8 @@ func userResponse(item user.User) generated.User {
 
 func authHTTPError(err error) error {
 	switch {
+	case errors.Is(err, auth.ErrSessionNotFound):
+		return apperror.NotFound("SESSION_NOT_FOUND", "error.session_not_found", "会话不存在", err)
 	case errors.Is(err, auth.ErrInvalidCredentials), errors.Is(err, auth.ErrInvalidToken), errors.Is(err, auth.ErrRefreshReuse):
 		return apperror.New("AUTHENTICATION_FAILED", "error.authentication_failed", "认证失败", http.StatusUnauthorized, err)
 	case errors.Is(err, auth.ErrUserDisabled):

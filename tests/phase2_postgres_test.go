@@ -30,28 +30,39 @@ func TestPhase2PostgreSQLWorkflow(t *testing.T) {
 	status, err := database.Inspect(t.Context(), cfg.Database)
 	require.NoError(t, err)
 	require.False(t, status.Initialized)
-	require.NoError(t, database.Initialize(t.Context(), cfg.Database))
-	status, err = database.Inspect(t.Context(), cfg.Database)
-	require.NoError(t, err)
-	require.True(t, status.Initialized)
-	require.Equal(t, status.Expected, status.SchemaVersion)
-	require.NoError(t, database.Initialize(t.Context(), cfg.Database))
 
 	pool, err := database.Open(t.Context(), cfg.Database)
 	require.NoError(t, err)
 	_, err = pool.Exec(t.Context(), "CREATE TABLE unexpected_table (id bigint PRIMARY KEY)")
 	require.NoError(t, err)
-	require.ErrorIs(t, database.Initialize(t.Context(), cfg.Database), database.ErrDatabaseNotEmpty)
+	pool.Close()
+	_, err = database.Migrate(t.Context(), cfg.Database)
+	require.ErrorIs(t, err, database.ErrDatabaseNotEmpty)
+
+	pool, err = database.Open(t.Context(), cfg.Database)
+	require.NoError(t, err)
 	_, err = pool.Exec(t.Context(), "DROP TABLE unexpected_table")
 	require.NoError(t, err)
 	pool.Close()
 
+	result, err := database.Migrate(t.Context(), cfg.Database)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), result.Applied)
+	status, err = database.Inspect(t.Context(), cfg.Database)
+	require.NoError(t, err)
+	require.True(t, status.Initialized)
+	require.Equal(t, status.Expected, status.SchemaVersion)
+	result, err = database.Migrate(t.Context(), cfg.Database)
+	require.NoError(t, err)
+	require.Zero(t, result.Applied)
+
 	pool, err = database.Open(t.Context(), cfg.Database)
 	require.NoError(t, err)
-	_, err = pool.Exec(t.Context(), "UPDATE schema_migrations SET version = 0 WHERE version = 2")
+	_, err = pool.Exec(t.Context(), "UPDATE public.goba_schema_version SET version = 2")
 	require.NoError(t, err)
-	require.ErrorIs(t, database.Initialize(t.Context(), cfg.Database), database.ErrSchemaMismatch)
-	_, err = pool.Exec(t.Context(), "UPDATE schema_migrations SET version = 2 WHERE version = 0")
+	_, err = database.Inspect(t.Context(), cfg.Database)
+	require.ErrorIs(t, err, database.ErrSchemaMismatch)
+	_, err = pool.Exec(t.Context(), "UPDATE public.goba_schema_version SET version = 1")
 	require.NoError(t, err)
 	pool.Close()
 
@@ -85,6 +96,61 @@ func TestPhase2PostgreSQLWorkflow(t *testing.T) {
 	testConcurrentUsernameConstraint(t, service)
 	_, err = service.GetByID(t.Context(), second.ID)
 	require.NoError(t, err)
+}
+
+func TestDatabaseMigrationSerializesConcurrentCalls(t *testing.T) {
+	cfg := startPostgreSQL(t)
+	results := make(chan struct {
+		result database.MigrationResult
+		err    error
+	}, 2)
+	var wait sync.WaitGroup
+	wait.Add(2)
+	for range 2 {
+		go func() {
+			defer wait.Done()
+			result, err := database.Migrate(t.Context(), cfg.Database)
+			results <- struct {
+				result database.MigrationResult
+				err    error
+			}{result: result, err: err}
+		}()
+	}
+	wait.Wait()
+	close(results)
+
+	var applied int32
+	for item := range results {
+		require.NoError(t, item.err)
+		applied += item.result.Applied
+	}
+	require.Equal(t, int32(1), applied)
+	status, err := database.Inspect(t.Context(), cfg.Database)
+	require.NoError(t, err)
+	require.True(t, status.Initialized)
+}
+
+func TestDatabaseMigrationFailureRollsBack(t *testing.T) {
+	cfg := startPostgreSQL(t)
+	pool, err := database.Open(t.Context(), cfg.Database)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	_, err = pool.Exec(t.Context(), "CREATE TABLE public.goba_schema_version (version int4 NOT NULL PRIMARY KEY)")
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), "INSERT INTO public.goba_schema_version (version) VALUES (0)")
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), "CREATE TABLE public.system_configs (id bigint PRIMARY KEY)")
+	require.NoError(t, err)
+
+	_, err = database.Migrate(t.Context(), cfg.Database)
+	require.Error(t, err)
+
+	var version int32
+	require.NoError(t, pool.QueryRow(t.Context(), "SELECT version FROM public.goba_schema_version").Scan(&version))
+	require.Zero(t, version)
+	var usersTable *string
+	require.NoError(t, pool.QueryRow(t.Context(), "SELECT to_regclass('public.users')").Scan(&usersTable))
+	require.Nil(t, usersTable)
 }
 
 func testTransactionRollback(t *testing.T, store *userpostgres.Store, passwords *user.Passwords) {

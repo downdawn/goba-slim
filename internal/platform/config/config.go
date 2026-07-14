@@ -4,13 +4,13 @@ package config
 import (
 	"context"
 	"fmt"
-	"math"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
@@ -179,11 +179,9 @@ func Default() Config {
 func Load(_ context.Context, options Options) (Config, error) {
 	cfg := Default()
 	if options.File != "" {
-		data, err := loadYAML(options.File)
-		if err != nil {
+		if err := loadYAML(&cfg, options.File); err != nil {
 			return Config{}, err
 		}
-		applyMap(&cfg, data)
 	}
 
 	prefix := options.EnvironmentPrefix
@@ -213,16 +211,22 @@ func Load(_ context.Context, options Options) (Config, error) {
 	return cfg, nil
 }
 
-func loadYAML(path string) (map[string]any, error) {
+func loadYAML(cfg *Config, path string) error {
 	k := koanf.New(".")
 	if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
-		return nil, fmt.Errorf("读取配置文件: %w", err)
+		return fmt.Errorf("读取配置文件: %w", err)
 	}
-	data := map[string]any{}
-	if err := k.Unmarshal("", &data); err != nil {
-		return nil, fmt.Errorf("解析配置文件: %w", err)
+	decoderConfig := &mapstructure.DecoderConfig{
+		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			mapstructure.StringToTimeDurationHookFunc(),
+		),
+		ErrorUnused:      true,
+		WeaklyTypedInput: false,
 	}
-	return data, nil
+	if err := k.UnmarshalWithConf("", cfg, koanf.UnmarshalConf{DecoderConfig: decoderConfig}); err != nil {
+		return fmt.Errorf("解析配置文件: %w", err)
+	}
+	return nil
 }
 
 func loadDotEnv(path string) ([]string, error) {
@@ -244,194 +248,6 @@ func loadDotEnv(path string) ([]string, error) {
 		values = append(values, key+"="+strings.Trim(strings.TrimSpace(value), "\"'"))
 	}
 	return values, nil
-}
-
-func applyMap(cfg *Config, data map[string]any) {
-	section := func(name string) map[string]any {
-		value, _ := data[name].(map[string]any)
-		return value
-	}
-	setString := func(m map[string]any, key string, target *string) {
-		if value, ok := m[key].(string); ok {
-			*target = value
-		}
-	}
-	setBool := func(m map[string]any, key string, target *bool) {
-		if value, ok := m[key].(bool); ok {
-			*target = value
-		}
-	}
-	setInt := func(m map[string]any, key string, target *int) {
-		if value, ok := m[key].(int); ok {
-			*target = value
-		}
-		if value, ok := m[key].(float64); ok {
-			*target = int(value)
-		}
-	}
-	setInt32 := func(m map[string]any, key string, target *int32) {
-		if value, ok := m[key].(int); ok {
-			if value < math.MinInt32 || value > math.MaxInt32 {
-				*target = -1
-				return
-			}
-			// #nosec G115 -- 已显式检查 int32 边界。
-			*target = int32(value)
-		}
-		if value, ok := m[key].(float64); ok {
-			if value < math.MinInt32 || value > math.MaxInt32 {
-				*target = -1
-				return
-			}
-			// #nosec G115 -- 已显式检查 int32 边界。
-			*target = int32(value)
-		}
-	}
-	setInt64 := func(m map[string]any, key string, target *int64) {
-		switch value := m[key].(type) {
-		case int:
-			*target = int64(value)
-		case int64:
-			*target = value
-		case float64:
-			if value < math.MinInt64 || value > math.MaxInt64 {
-				*target = -1
-				return
-			}
-			*target = int64(value)
-		}
-	}
-	setDuration := func(m map[string]any, key string, target *time.Duration) {
-		if value, ok := m[key].(string); ok {
-			if parsed, err := time.ParseDuration(value); err == nil {
-				*target = parsed
-			}
-		}
-	}
-	setStrings := func(m map[string]any, key string, target *[]string) {
-		if values, ok := m[key].([]any); ok {
-			*target = toStrings(values)
-		}
-	}
-	setStringMap := func(m map[string]any, key string, target *map[string]string) {
-		values, ok := m[key].(map[string]any)
-		if !ok {
-			return
-		}
-		result := make(map[string]string, len(values))
-		for itemKey, value := range values {
-			if stringValue, ok := value.(string); ok {
-				result[itemKey] = stringValue
-			}
-		}
-		*target = result
-	}
-
-	if m := section("app"); m != nil {
-		setString(m, "environment", &cfg.App.Environment)
-		setBool(m, "debug", &cfg.App.Debug)
-		setBool(m, "docs_enabled", &cfg.App.DocsEnabled)
-	}
-	if m := section("server"); m != nil {
-		setString(m, "host", &cfg.Server.Host)
-		setInt(m, "port", &cfg.Server.Port)
-		setDuration(m, "header_timeout", &cfg.Server.HeaderTimeout)
-		setDuration(m, "read_timeout", &cfg.Server.ReadTimeout)
-		setDuration(m, "write_timeout", &cfg.Server.WriteTimeout)
-		setDuration(m, "idle_timeout", &cfg.Server.IdleTimeout)
-		setDuration(m, "shutdown_timeout", &cfg.Server.ShutdownTimeout)
-		setStrings(m, "trusted_proxies", &cfg.Server.TrustedProxies)
-	}
-	if m := section("database"); m != nil {
-		setString(m, "host", &cfg.Database.Host)
-		setInt(m, "port", &cfg.Database.Port)
-		setString(m, "name", &cfg.Database.Name)
-		setString(m, "user", &cfg.Database.User)
-		var password string
-		setString(m, "password", &password)
-		if password != "" {
-			cfg.Database.Password = NewSecret(password)
-		}
-		setString(m, "password_file", &cfg.Database.PasswordFile)
-		setString(m, "ssl_mode", &cfg.Database.SSLMode)
-		setInt32(m, "min_connections", &cfg.Database.MinConnections)
-		setInt32(m, "max_connections", &cfg.Database.MaxConnections)
-		setDuration(m, "connect_timeout", &cfg.Database.ConnectTimeout)
-		setDuration(m, "health_timeout", &cfg.Database.HealthTimeout)
-	}
-	if m := section("redis"); m != nil {
-		setString(m, "host", &cfg.Redis.Host)
-		setInt(m, "port", &cfg.Redis.Port)
-		setInt(m, "database", &cfg.Redis.Database)
-		setString(m, "username", &cfg.Redis.Username)
-		var password string
-		setString(m, "password", &password)
-		if password != "" {
-			cfg.Redis.Password = NewSecret(password)
-		}
-		setString(m, "password_file", &cfg.Redis.PasswordFile)
-		setBool(m, "tls", &cfg.Redis.TLS)
-		setInt(m, "pool_size", &cfg.Redis.PoolSize)
-		setInt(m, "min_idle_connections", &cfg.Redis.MinIdleConns)
-		setDuration(m, "connect_timeout", &cfg.Redis.ConnectTimeout)
-		setDuration(m, "read_timeout", &cfg.Redis.ReadTimeout)
-		setDuration(m, "write_timeout", &cfg.Redis.WriteTimeout)
-		setDuration(m, "health_timeout", &cfg.Redis.HealthTimeout)
-	}
-	if m := section("cors"); m != nil {
-		setStrings(m, "allow_origins", &cfg.CORS.AllowOrigins)
-		setStrings(m, "allow_methods", &cfg.CORS.AllowMethods)
-		setStrings(m, "allow_headers", &cfg.CORS.AllowHeaders)
-		setBool(m, "allow_credentials", &cfg.CORS.AllowCredentials)
-	}
-	if m := section("auth"); m != nil {
-		setString(m, "issuer", &cfg.Auth.Issuer)
-		setString(m, "audience", &cfg.Auth.Audience)
-		var key string
-		setString(m, "private_key", &key)
-		if key != "" {
-			cfg.Auth.PrivateKey = NewSecret(key)
-		}
-		setString(m, "private_key_file", &cfg.Auth.PrivateKeyFile)
-		setDuration(m, "access_token_ttl", &cfg.Auth.AccessTokenTTL)
-		setDuration(m, "refresh_token_ttl", &cfg.Auth.RefreshTokenTTL)
-		setString(m, "key_id", &cfg.Auth.KeyID)
-		setStringMap(m, "verification_key_files", &cfg.Auth.VerificationKeyFiles)
-		setString(m, "refresh_cookie", &cfg.Auth.RefreshCookie)
-		setString(m, "cookie_domain", &cfg.Auth.CookieDomain)
-		setString(m, "cookie_path", &cfg.Auth.CookiePath)
-		setBool(m, "cookie_secure", &cfg.Auth.CookieSecure)
-		setString(m, "cookie_same_site", &cfg.Auth.CookieSameSite)
-		setInt(m, "login_attempts", &cfg.Auth.LoginAttempts)
-		setDuration(m, "login_window", &cfg.Auth.LoginWindow)
-	}
-	if m := section("log"); m != nil {
-		setString(m, "level", &cfg.Log.Level)
-		setString(m, "format", &cfg.Log.Format)
-	}
-	if m := section("file"); m != nil {
-		setString(m, "storage_path", &cfg.File.StoragePath)
-		setInt64(m, "image_max_bytes", &cfg.File.ImageMaxBytes)
-		setBool(m, "video_enabled", &cfg.File.VideoEnabled)
-		setInt64(m, "video_max_bytes", &cfg.File.VideoMaxBytes)
-	}
-	if m := section("systemconfig"); m != nil {
-		setDuration(m, "cache_ttl", &cfg.SystemConfig.CacheTTL)
-	}
-	if m := section("modules"); m != nil {
-		setBool(m, "file", &cfg.Modules.File)
-		setBool(m, "systemconfig", &cfg.Modules.SystemConfig)
-	}
-}
-
-func toStrings(values []any) []string {
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if stringValue, ok := value.(string); ok {
-			result = append(result, stringValue)
-		}
-	}
-	return result
 }
 
 func applyEnvironment(cfg *Config, values []string, prefix string) error {

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/downdawn/goba-slim/internal/module"
 	filemodule "github.com/downdawn/goba-slim/internal/modules/file"
 	"github.com/downdawn/goba-slim/internal/modules/systemconfig"
 	systemconfigpostgres "github.com/downdawn/goba-slim/internal/modules/systemconfig/postgres"
@@ -32,15 +31,18 @@ func Build(_ context.Context, cfg config.Config, logger *slog.Logger, options ..
 			option(&buildOptions)
 		}
 	}
-	if !buildOptions.coreModulesSet {
-		coreModules, builtComponents, err := buildCoreModules(cfg)
+	if !buildOptions.componentsSet {
+		builtComponents, err := newCoreComponents(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("构造核心模块失败: %w", err)
 		}
-		buildOptions.coreModules = coreModules
 		components = builtComponents
 		buildOptions.authService = components.auth
 		buildOptions.userService = components.users
+		buildOptions.components = append(buildOptions.components,
+			lifecycleComponent{name: "postgresql", start: components.database.Start, stop: components.database.Stop, health: components.database.Health},
+			lifecycleComponent{name: "redis", start: components.redis.Start, stop: components.redis.Stop, health: components.redis.Health},
+		)
 	}
 	if cfg.Modules.File {
 		store, err := filemodule.NewLocalStore(cfg.File.StoragePath)
@@ -54,7 +56,7 @@ func Build(_ context.Context, cfg config.Config, logger *slog.Logger, options ..
 			return nil, fmt.Errorf("构造文件服务失败: %w", err)
 		}
 		buildOptions.fileService = service
-		buildOptions.modules = append(buildOptions.modules, filemodule.NewModule(store))
+		buildOptions.components = append(buildOptions.components, lifecycleComponent{name: "file", start: store.Start, stop: store.Stop, health: store.Health})
 	}
 	if cfg.Modules.SystemConfig {
 		if components == nil {
@@ -73,34 +75,10 @@ func Build(_ context.Context, cfg config.Config, logger *slog.Logger, options ..
 			return nil, fmt.Errorf("构造动态配置服务失败: %w", err)
 		}
 		buildOptions.systemConfigService = service
-		buildOptions.modules = append(buildOptions.modules, systemconfig.NewModule(service))
-	}
-	buildOptions.modules = append(buildOptions.coreModules, buildOptions.modules...)
-
-	registry := module.NewRegistry()
-	for _, item := range buildOptions.modules {
-		if err := registry.Add(item); err != nil {
-			return nil, fmt.Errorf("注册模块失败: %w", err)
-		}
-		if err := item.Register(registry); err != nil {
-			return nil, fmt.Errorf("装配模块 %q 失败: %w", item.Manifest().Name, err)
-		}
-	}
-	ordered, err := registry.Resolve(nil)
-	if err != nil {
-		return nil, fmt.Errorf("解析模块依赖失败: %w", err)
 	}
 
 	if buildOptions.server == nil {
-		healthChecks := make(map[string]health.Check)
-		for _, item := range ordered {
-			checker, ok := item.(module.HealthChecker)
-			if !ok {
-				continue
-			}
-			healthChecks["module:"+item.Manifest().Name] = checker.Health
-		}
-		healthService := health.NewService(healthChecks)
+		healthService := health.NewService(componentHealthChecks(buildOptions.components))
 		handler := httpapi.NewHandler(httpapi.HandlerOptions{Health: healthService, Auth: buildOptions.authService, Files: buildOptions.fileService, SystemConfigs: buildOptions.systemConfigService, Users: buildOptions.userService, AuthConfig: cfg.Auth, CORS: cfg.CORS})
 		//nolint:contextcheck // 路由构造不启动 I/O，处理请求时由 Server 注入请求 Context。
 		router := httpserver.NewRouter(httpserver.Options{Config: cfg, Handler: handler, Logger: logger})
@@ -111,5 +89,5 @@ func Build(_ context.Context, cfg config.Config, logger *slog.Logger, options ..
 		})
 	}
 
-	return &App{runtime: module.NewRuntime(ordered), server: buildOptions.server}, nil
+	return &App{components: buildOptions.components, server: buildOptions.server}, nil
 }

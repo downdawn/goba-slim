@@ -9,12 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type SchemaMigration struct {
-	Version   int32
-	Name      string
-	AppliedAt pgtype.Timestamptz
-}
-
 type SystemConfig struct {
 	Key         string
 	Value       []byte

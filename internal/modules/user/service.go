@@ -94,6 +94,18 @@ func (s *Service) VerifyCredentials(ctx context.Context, username, password stri
 	if !matched {
 		return User{}, ErrPasswordMismatch
 	}
+	if s.passwords.NeedsRehash(current.PasswordHash) {
+		hash, hashErr := s.passwords.Hash(password)
+		if hashErr != nil {
+			return User{}, fmt.Errorf("升级用户密码摘要: %w", hashErr)
+		}
+		now := s.clock.Now().UTC()
+		if updateErr := s.repository.UpdatePasswordHash(ctx, current.ID, hash, now); updateErr != nil {
+			return User{}, fmt.Errorf("升级用户密码摘要: %w", updateErr)
+		}
+		current.PasswordHash = hash
+		current.UpdatedAt = now
+	}
 	return current, nil
 }
 

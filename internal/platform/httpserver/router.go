@@ -11,7 +11,9 @@ import (
 	"github.com/downdawn/goba-slim/internal/platform/config"
 	"github.com/downdawn/goba-slim/internal/shared/apperror"
 	"github.com/downdawn/goba-slim/internal/transport/httpapi"
+	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/gin-gonic/gin"
+	ginmiddleware "github.com/oapi-codegen/gin-middleware"
 )
 
 // Options 集中传入路由所需的已构造依赖，避免 HTTP 边界读取全局配置。
@@ -45,13 +47,48 @@ func NewRouter(options Options) *gin.Engine {
 		timeoutMiddleware(options.Config.Server.ReadTimeout),
 	)
 
-	generated.RegisterHandlersWithOptions(optionalModuleRouter{IRouter: router, files: options.Config.Modules.File, systemConfig: options.Config.Modules.SystemConfig}, options.Handler, generated.GinServerOptions{ErrorHandler: func(ctx *gin.Context, err error, _ int) {
+	api := router.Group("")
+	api.Use(openAPIValidationMiddleware())
+	generated.RegisterHandlersWithOptions(optionalModuleRouter{IRouter: api, files: options.Config.Modules.File, systemConfig: options.Config.Modules.SystemConfig}, options.Handler, generated.GinServerOptions{ErrorHandler: func(ctx *gin.Context, err error, _ int) {
 		httpapi.WriteError(ctx, apperror.Validation("INVALID_REQUEST", "error.invalid_request", "请求参数无效", err))
 	}})
 	if options.Config.App.Environment != "production" && options.Config.App.DocsEnabled {
 		registerDocumentation(router)
 	}
 	return router
+}
+
+func openAPIValidationMiddleware() gin.HandlerFunc {
+	specification, err := generated.GetSpec()
+	if err != nil {
+		panic("httpserver: invalid embedded OpenAPI specification")
+	}
+	specification.Servers = nil
+	options := ginmiddleware.Options{
+		ErrorHandler: openAPIValidationError,
+		Options: openapi3filter.Options{
+			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+		},
+	}
+	validator := ginmiddleware.OapiRequestValidatorWithOptions(specification, &options)
+	uploadOptions := options
+	uploadOptions.Options.ExcludeRequestBody = true
+	uploadValidator := ginmiddleware.OapiRequestValidatorWithOptions(specification, &uploadOptions)
+	return func(ctx *gin.Context) {
+		if ctx.Request.Method == http.MethodPost && ctx.Request.URL.Path == "/api/v1/files" {
+			uploadValidator(ctx)
+			return
+		}
+		validator(ctx)
+	}
+}
+
+func openAPIValidationError(ctx *gin.Context, _ string, statusCode int) {
+	if statusCode == http.StatusNotFound {
+		ctx.AbortWithStatus(statusCode)
+		return
+	}
+	httpapi.WriteError(ctx, apperror.Validation("INVALID_REQUEST", "error.invalid_request", "请求参数无效", nil))
 }
 
 type optionalModuleRouter struct {

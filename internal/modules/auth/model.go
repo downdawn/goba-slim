@@ -16,6 +16,7 @@ var (
 	ErrInvalidToken       = errors.New("token 无效或已过期")
 	ErrRefreshReuse       = errors.New("Refresh Token 已被重复使用")
 	ErrRateLimited        = errors.New("登录尝试过于频繁")
+	ErrSessionNotFound    = errors.New("认证会话不存在")
 	ErrUnavailable        = errors.New("认证依赖不可用")
 )
 
@@ -42,6 +43,13 @@ type Identity struct {
 	SessionID uuid.UUID
 }
 
+type SessionSummary struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	Current   bool
+}
+
 type UserService interface {
 	VerifyCredentials(context.Context, string, string) (user.User, error)
 	GetByID(context.Context, uuid.UUID) (user.User, error)
@@ -51,6 +59,7 @@ type UserService interface {
 type SessionStore interface {
 	Create(context.Context, Session, time.Duration, bool) error
 	Get(context.Context, uuid.UUID) (Session, error)
+	ListByUser(context.Context, uuid.UUID) ([]Session, error)
 	Rotate(context.Context, string, string, time.Time, time.Duration) (Session, error)
 	Revoke(context.Context, uuid.UUID) error
 	RevokeUser(context.Context, uuid.UUID) error

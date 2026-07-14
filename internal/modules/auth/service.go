@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -35,12 +36,18 @@ func NewService(users UserService, sessions SessionStore, limiter RateLimiter, t
 
 func (s *Service) Login(ctx context.Context, username, password, clientKey string) (TokenPair, error) {
 	normalized := strings.ToLower(strings.TrimSpace(username))
-	allowed, err := s.limiter.Allow(ctx, normalized+":"+clientKey, s.maxAttempts, s.loginWindow)
-	if err != nil {
-		return TokenPair{}, fmt.Errorf("%w: 登录限流: %w", ErrUnavailable, err)
+	clientKey = strings.TrimSpace(clientKey)
+	if clientKey == "" {
+		clientKey = "unknown"
 	}
-	if !allowed {
-		return TokenPair{}, ErrRateLimited
+	for _, key := range []string{"ip:" + clientKey, "account:" + normalized} {
+		allowed, err := s.limiter.Allow(ctx, key, s.maxAttempts, s.loginWindow)
+		if err != nil {
+			return TokenPair{}, fmt.Errorf("%w: 登录限流: %w", ErrUnavailable, err)
+		}
+		if !allowed {
+			return TokenPair{}, ErrRateLimited
+		}
 	}
 	account, err := s.users.VerifyCredentials(ctx, normalized, password)
 	if err != nil {
@@ -128,6 +135,62 @@ func (s *Service) Authenticate(ctx context.Context, access string) (Identity, er
 func (s *Service) Logout(ctx context.Context, sessionID uuid.UUID) error {
 	if err := s.sessions.Revoke(ctx, sessionID); err != nil {
 		return fmt.Errorf("%w: 撤销认证会话: %w", ErrUnavailable, err)
+	}
+	return nil
+}
+
+func (s *Service) ListSessions(ctx context.Context, userID, currentSessionID uuid.UUID) ([]SessionSummary, error) {
+	sessions, err := s.sessions.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: 读取用户认证会话: %w", ErrUnavailable, err)
+	}
+	result := make([]SessionSummary, 0, len(sessions))
+	for _, session := range sessions {
+		result = append(result, SessionSummary{
+			ID:        session.ID,
+			CreatedAt: session.CreatedAt,
+			ExpiresAt: session.ExpiresAt,
+			Current:   session.ID == currentSessionID,
+		})
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].CreatedAt.Equal(result[right].CreatedAt) {
+			return result[left].ID.String() < result[right].ID.String()
+		}
+		return result[left].CreatedAt.After(result[right].CreatedAt)
+	})
+	return result, nil
+}
+
+func (s *Service) RevokeSession(ctx context.Context, userID, sessionID uuid.UUID) error {
+	session, err := s.sessions.Get(ctx, sessionID)
+	if errors.Is(err, ErrInvalidToken) {
+		return ErrSessionNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("%w: 读取认证会话: %w", ErrUnavailable, err)
+	}
+	if session.UserID != userID {
+		return ErrSessionNotFound
+	}
+	if err := s.sessions.Revoke(ctx, sessionID); err != nil {
+		return fmt.Errorf("%w: 撤销认证会话: %w", ErrUnavailable, err)
+	}
+	return nil
+}
+
+func (s *Service) RevokeOtherSessions(ctx context.Context, userID, currentSessionID uuid.UUID) error {
+	sessions, err := s.sessions.ListByUser(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("%w: 读取用户认证会话: %w", ErrUnavailable, err)
+	}
+	for _, session := range sessions {
+		if session.ID == currentSessionID {
+			continue
+		}
+		if err := s.sessions.Revoke(ctx, session.ID); err != nil {
+			return fmt.Errorf("%w: 撤销其他认证会话: %w", ErrUnavailable, err)
+		}
 	}
 	return nil
 }

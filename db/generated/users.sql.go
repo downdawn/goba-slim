@@ -421,6 +421,24 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 	return i, err
 }
 
+const updateUserPasswordHash = `-- name: UpdateUserPasswordHash :exec
+UPDATE users
+SET password_hash = $2,
+    updated_at = $3
+WHERE id = $1
+`
+
+type UpdateUserPasswordHashParams struct {
+	ID           uuid.UUID
+	PasswordHash string
+	UpdatedAt    pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateUserPasswordHash(ctx context.Context, arg UpdateUserPasswordHashParams) error {
+	_, err := q.db.Exec(ctx, updateUserPasswordHash, arg.ID, arg.PasswordHash, arg.UpdatedAt)
+	return err
+}
+
 const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
 SET username = $2,

@@ -139,7 +139,7 @@ func setup(root string, output io.Writer) error {
 	writeSetupStatus(output, configPath, configCreated)
 	writeSetupStatus(output, keyPath, keyCreated)
 	writeSetupStatus(output, filepath.Join(root, ".env"), envCreated)
-	_, err = fmt.Fprintln(output, "本地文件已准备完成。使用外部依赖时运行 task db:init 和 task run；完整环境运行 task compose:up。")
+	_, err = fmt.Fprintln(output, "本地文件已准备完成。使用外部依赖时运行 task db:migrate 和 task run；完整环境运行 task compose:up。")
 	return err
 }
 

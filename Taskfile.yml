@@ -38,25 +38,21 @@ tasks:
 
   test:
     desc: 执行单元测试
-    deps: [generate:check]
     cmds:
       - go test ./...
 
   test:race:
-    desc: 执行竞态检测
-    deps: [generate:check]
+    desc: 执行竞态检测（Linux CI）
     cmds:
       - go test -race ./...
 
   test:coverage:
     desc: 生成测试覆盖率文件
-    deps: [generate:check]
     cmds:
       - go test ./... -coverprofile=coverage.out
 
   test:integration:
     desc: 使用 Testcontainers 执行 PostgreSQL、Redis 与认证集成测试
-    deps: [generate:check]
     cmds:
       - go test -tags=integration ./tests -count=1
 
@@ -105,12 +101,13 @@ tasks:
   run:
     desc: 在宿主机使用本地开发配置启动 API
     cmds:
+      - task: db:migrate
       - go run ./cmd/goba serve --config configs/config.local.yaml --load-dotenv
 
-  db:init:
-    desc: 初始化当前配置指向的数据库 Schema
+  db:migrate:
+    desc: 迁移当前配置指向的数据库 Schema
     cmds:
-      - go run ./cmd/goba db init --yes --config configs/config.local.yaml --load-dotenv
+      - go run ./cmd/goba db migrate --config configs/config.local.yaml --load-dotenv
 
   dev:up:
     desc: 启动本地 PostgreSQL 与 Redis
@@ -153,12 +150,18 @@ tasks:
       - go build -trimpath -pgo=default.pgo -o {{.OUTPUT}} ./cmd/goba
 
   check:
-    desc: 执行完整本地验收
+    desc: 执行快速本地检查
     cmds:
-      - task: generate:check
+      - task: generate
       - task: format:check
       - task: vet
+      - task: lint
       - task: test
+      - task: build
+
+  check:full:
+    desc: 执行含集成测试与漏洞扫描的完整检查
+    cmds:
+      - task: check
       - task: test:integration
       - task: vuln
-      - task: build

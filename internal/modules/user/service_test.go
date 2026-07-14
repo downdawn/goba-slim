@@ -93,6 +93,15 @@ func (r *memoryRepository) UpdatePassword(ctx context.Context, identifier uuid.U
 	r.users[identifier] = item
 	return item, nil
 }
+func (r *memoryRepository) UpdatePasswordHash(ctx context.Context, identifier uuid.UUID, hash string, now time.Time) error {
+	item, err := r.GetByID(ctx, identifier)
+	if err != nil {
+		return err
+	}
+	item.PasswordHash, item.UpdatedAt = hash, now
+	r.users[identifier] = item
+	return nil
+}
 func (*memoryRepository) UpdateLastLogin(context.Context, uuid.UUID, time.Time) error { return nil }
 func (*memoryRepository) LockSuperuserChanges(context.Context) error                  { return nil }
 func (r *memoryRepository) CountActiveSuperusers(context.Context) (int64, error) {
@@ -142,4 +151,31 @@ func TestServiceProtectsLastActiveSuperuser(t *testing.T) {
 	require.ErrorIs(t, err, ErrLastSuperuser)
 	_, err = service.SetSuperuser(t.Context(), identifier, false)
 	require.ErrorIs(t, err, ErrLastSuperuser)
+}
+
+func TestVerifyCredentialsRehashesOldParametersWithoutRevokingSessions(t *testing.T) {
+	repository := newMemoryRepository()
+	oldPasswords, err := NewPasswords(testArgon2Params())
+	require.NoError(t, err)
+	currentParams := testArgon2Params()
+	currentParams.Time = 2
+	passwords, err := NewPasswords(currentParams)
+	require.NoError(t, err)
+	oldHash, err := oldPasswords.Hash("CorrectHorse9")
+	require.NoError(t, err)
+	identifier := uuid.MustParse("019befd7-98d0-7000-8000-000000000003")
+	passwordChangedAt := time.Date(2026, time.July, 12, 12, 0, 0, 0, time.UTC)
+	now := passwordChangedAt.Add(time.Hour)
+	repository.users[identifier] = User{ID: identifier, Username: "admin", PasswordHash: oldHash, Status: StatusActive, SessionVersion: 7, PasswordChangedAt: passwordChangedAt}
+	service, err := NewService(repository, repository, passwords, fixedClock{value: now}, fixedIDs{value: identifier})
+	require.NoError(t, err)
+
+	verified, err := service.VerifyCredentials(t.Context(), "admin", "CorrectHorse9")
+
+	require.NoError(t, err)
+	require.NotEqual(t, oldHash, verified.PasswordHash)
+	require.False(t, passwords.NeedsRehash(verified.PasswordHash))
+	require.Equal(t, int64(7), verified.SessionVersion)
+	require.Equal(t, passwordChangedAt, verified.PasswordChangedAt)
+	require.Equal(t, now, verified.UpdatedAt)
 }

@@ -103,20 +103,22 @@ func TestDatabaseStatusReportsUninitializedSchema(t *testing.T) {
 	require.Contains(t, output.String(), "Schema 尚未初始化")
 }
 
-func TestDatabaseInitRequiresExplicitConfirmation(t *testing.T) {
+func TestDatabaseMigrateReportsAppliedMigrations(t *testing.T) {
 	called := false
 	cmd := NewRoot(Dependencies{
 		Load: config.Load,
-		DBInit: func(context.Context, config.Config) error {
+		DBMigrate: func(context.Context, config.Config) (database.MigrationResult, error) {
 			called = true
-			return nil
+			return database.MigrationResult{Previous: 0, Current: 1, Applied: 1}, nil
 		},
 	})
-	cmd.SetOut(new(bytes.Buffer))
-	cmd.SetArgs([]string{"db", "init", "--yes", "--config", testConfigPath(t, "")})
+	output := new(bytes.Buffer)
+	cmd.SetOut(output)
+	cmd.SetArgs([]string{"db", "migrate", "--config", testConfigPath(t, "")})
 
 	require.NoError(t, cmd.ExecuteContext(t.Context()))
 	require.True(t, called)
+	require.Contains(t, output.String(), "版本 0 -> 1")
 }
 
 func TestCreateAdminReadsPasswordFileWithoutPrintingPassword(t *testing.T) {
@@ -156,6 +158,19 @@ func TestUnknownCommandReturnsError(t *testing.T) {
 	require.Error(t, cmd.ExecuteContext(t.Context()))
 }
 
+func TestHealthcheckUsesInjectedProbe(t *testing.T) {
+	called := false
+	cmd := NewRoot(Dependencies{Probe: func(_ context.Context, url string) error {
+		called = true
+		require.Equal(t, "http://127.0.0.1:8000/readyz", url)
+		return nil
+	}})
+	cmd.SetArgs([]string{"healthcheck"})
+
+	require.NoError(t, cmd.ExecuteContext(t.Context()))
+	require.True(t, called)
+}
+
 func TestDoctorPrintsSafeChecksAndReturnsFailure(t *testing.T) {
 	cmd := NewRoot(Dependencies{
 		Load: config.Load,
@@ -175,17 +190,6 @@ func TestDoctorPrintsSafeChecksAndReturnsFailure(t *testing.T) {
 	require.Contains(t, output.String(), "OK")
 	require.Contains(t, output.String(), "FAIL")
 	require.NotContains(t, output.String(), "password")
-}
-
-func TestModuleListReportsOptionalState(t *testing.T) {
-	cmd, output := newTestRoot(t)
-	cmd.SetArgs([]string{"module", "list", "--config", testConfigPath(t, "modules:\n  file: true\n  systemconfig: false\n")})
-
-	require.NoError(t, cmd.ExecuteContext(t.Context()))
-	require.Contains(t, output.String(), "file")
-	require.Contains(t, output.String(), "true")
-	require.Contains(t, output.String(), "systemconfig")
-	require.Contains(t, output.String(), "false")
 }
 
 func newTestRoot(t *testing.T) (*cobra.Command, *bytes.Buffer) {

@@ -23,6 +23,41 @@ func TestLoadMergesDefaultsYAMLAndEnvironment(t *testing.T) {
 	require.Equal(t, 15*time.Second, cfg.Server.ReadTimeout)
 }
 
+func TestLoadRejectsUnknownYAMLKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("server:\n  port: 9001\n  porrt: 9002\n"), 0o600))
+
+	_, err := Load(t.Context(), Options{File: path})
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "porrt")
+}
+
+func TestLoadRejectsWrongYAMLTypes(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+		field    string
+	}{
+		{name: "string integer", contents: "server:\n  port: '9001'\n", field: "port"},
+		{name: "string boolean", contents: "modules:\n  file: 'true'\n", field: "file"},
+		{name: "invalid duration", contents: "server:\n  read_timeout: tomorrow\n", field: "read_timeout"},
+		{name: "invalid list element", contents: "cors:\n  allow_origins: [https://app.example.com, 42]\n", field: "allow_origins"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(test.contents), 0o600))
+
+			_, err := Load(t.Context(), Options{File: path})
+
+			require.Error(t, err)
+			require.ErrorContains(t, err, test.field)
+		})
+	}
+}
+
 func TestValidateRejectsUnsafeCorsWildcardWithCredentials(t *testing.T) {
 	cfg := Default()
 	cfg.CORS.AllowOrigins = []string{"*"}

@@ -75,6 +75,42 @@ func (s *Store) Get(ctx context.Context, sessionID uuid.UUID) (auth.Session, err
 	return session, nil
 }
 
+func (s *Store) ListByUser(ctx context.Context, userID uuid.UUID) ([]auth.Session, error) {
+	key := s.userPrefix + userID.String()
+	ids, err := s.client.SMembers(ctx, key).Result()
+	if err != nil {
+		return nil, fmt.Errorf("读取用户会话索引: %w", err)
+	}
+	sessions := make([]auth.Session, 0, len(ids))
+	stale := make([]any, 0)
+	for _, value := range ids {
+		sessionID, parseErr := uuid.Parse(value)
+		if parseErr != nil {
+			stale = append(stale, value)
+			continue
+		}
+		session, getErr := s.Get(ctx, sessionID)
+		if errors.Is(getErr, auth.ErrInvalidToken) {
+			stale = append(stale, value)
+			continue
+		}
+		if getErr != nil {
+			return nil, getErr
+		}
+		if session.UserID != userID {
+			stale = append(stale, value)
+			continue
+		}
+		sessions = append(sessions, session)
+	}
+	if len(stale) > 0 {
+		if err := s.client.SRem(ctx, key, stale...).Err(); err != nil {
+			return nil, fmt.Errorf("清理失效用户会话索引: %w", err)
+		}
+	}
+	return sessions, nil
+}
+
 func (s *Store) Rotate(ctx context.Context, oldDigest, newDigest string, now time.Time, ttl time.Duration) (auth.Session, error) {
 	expiresAt := now.Add(ttl).UTC().Format(time.RFC3339Nano)
 	result, err := s.rotateScript.Run(ctx, s.client, nil,
