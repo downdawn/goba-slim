@@ -67,7 +67,7 @@ jobs:
           pattern: binary-*
           merge-multiple: true
           path: dist
-      - uses: anchore/sbom-action@v0.9.0
+      - uses: anchore/sbom-action@v0.24.0
         with:
           path: .
           format: spdx-json
