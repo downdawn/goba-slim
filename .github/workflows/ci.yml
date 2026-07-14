@@ -115,7 +115,7 @@ jobs:
           test "$readonly_rootfs" = "true"
           docker rm --force goba-readonly-check >/dev/null
       - name: Scan image
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: goba-slim:local
           format: table
